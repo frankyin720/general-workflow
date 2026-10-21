@@ -25,9 +25,10 @@ body {
 }
 
 .topbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
+  gap: 1rem;
   padding: 1rem 1.5rem;
   border-bottom: 1px solid var(--border);
   background: rgba(15, 20, 25, 0.85);
@@ -35,6 +36,36 @@ body {
   position: sticky;
   top: 0;
   z-index: 10;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  justify-self: end;
+}
+
+.topbar-role {
+  justify-self: center;
+  text-align: center;
+  padding: 0.45rem 1.1rem;
+  border-radius: 999px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  max-width: min(420px, 42vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar-role .role-label {
+  color: var(--muted);
+  font-weight: 500;
+  margin-right: 0.35rem;
 }
 
 .brand {
@@ -165,6 +196,10 @@ main {
   padding: 1rem;
   cursor: pointer;
   transition: border-color 0.15s, transform 0.15s;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  width: 100%;
 }
 
 .persona-card:hover {
@@ -175,6 +210,7 @@ main {
 .persona-card h3 {
   margin: 0 0 0.35rem;
   font-size: 1rem;
+  color: #fff;
 }
 
 .persona-card p {

@@ -6,6 +6,6 @@ import org.springframework.context.annotation.Configuration;
 
 @Configuration
 @EnableConfigurationProperties(DemoProperties.class)
-@ConditionalOnProperty(prefix = "mortgage-workflow.demo", name = "enabled", havingValue = "true")
+@ConditionalOnProperty(prefix = "application-workflow.demo", name = "enabled", havingValue = "true")
 public class DemoConfiguration {
 }

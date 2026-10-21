@@ -22,7 +22,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/demo/auth")
-@ConditionalOnProperty(prefix = "mortgage-workflow.demo", name = "enabled", havingValue = "true")
+@ConditionalOnProperty(prefix = "application-workflow.demo", name = "enabled", havingValue = "true")
 public class DemoAuthController {
 
 	public static final String SESSION_HEADER = "X-Demo-Session";

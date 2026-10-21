@@ -7,10 +7,10 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 
 @SpringBootApplication
 @EnableConfigurationProperties(IntegrationProperties.class)
-public class MortgageWorkflowApplication {
+public class ApplicationWorkflowApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(MortgageWorkflowApplication.class, args);
+		SpringApplication.run(ApplicationWorkflowApplication.class, args);
 	}
 
 }

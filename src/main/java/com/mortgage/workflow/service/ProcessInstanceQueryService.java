@@ -49,6 +49,50 @@ public class ProcessInstanceQueryService {
 		return Optional.of(items.getFirst());
 	}
 
+	public Optional<ProcessInstance> findByProcessInstanceKey(long processInstanceKey) {
+		if (processInstanceKey <= 0) {
+			return Optional.empty();
+		}
+		var items = camundaClient.newProcessInstanceSearchRequest()
+				.filter(filter -> filter.processInstanceKey(processInstanceKey))
+				.page(p -> p.limit(1))
+				.execute()
+				.items();
+		if (items.isEmpty()) {
+			return Optional.empty();
+		}
+		return Optional.of(items.getFirst());
+	}
+
+	public Optional<ProcessInstance> findLatestByVariable(String name, String value) {
+		if (name == null || name.isBlank() || value == null || value.isBlank()) {
+			return Optional.empty();
+		}
+		var items = camundaClient.newProcessInstanceSearchRequest()
+				.filter(filter -> filter.variables(Map.of(name, value)))
+				.sort(sort -> sort.startDate().desc())
+				.page(p -> p.limit(1))
+				.execute()
+				.items();
+		if (items.isEmpty()) {
+			return Optional.empty();
+		}
+		return Optional.of(items.getFirst());
+	}
+
+	/** Resolves a demo application to its Camunda process (businessId is most reliable on c8run). */
+	public Optional<ProcessInstance> resolveDemoApplication(String applicationId, long processInstanceKey) {
+		Optional<ProcessInstance> byBusinessId = findLatestByBusinessId(applicationId);
+		if (byBusinessId.isPresent()) {
+			return byBusinessId;
+		}
+		Optional<ProcessInstance> byVariable = findLatestByVariable("applicationId", applicationId);
+		if (byVariable.isPresent()) {
+			return byVariable;
+		}
+		return findByProcessInstanceKey(processInstanceKey);
+	}
+
 	public Map<String, Object> snapshotVariables(long processInstanceKey) {
 		Map<String, Object> values = new HashMap<>();
 		for (String name : STATUS_VARIABLES) {

@@ -3,21 +3,24 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Mortgage Workflow — Demo Portal</title>
+  <title>Application Workflow — Demo Portal</title>
   <link rel="stylesheet" href="/app.css" />
 </head>
 <body>
   <div id="app">
     <header class="topbar">
       <div class="brand">
-        <span class="logo">Mortgage Workflow</span>
+        <span class="logo">Application Workflow</span>
         <span class="subtitle">Single-screen workflow conductor</span>
       </div>
-      <div id="userBadge" class="user-badge"></div>
-      <details class="persona-toggle">
-        <summary class="btn ghost small">Role simulation (optional)</summary>
-        <div id="personaGrid" class="persona-grid compact"></div>
-      </details>
+      <div id="currentRole" class="topbar-role" aria-live="polite"></div>
+      <div class="topbar-actions">
+        <div id="userBadge" class="user-badge"></div>
+        <details class="persona-toggle">
+          <summary class="btn ghost small">Role simulation (optional)</summary>
+          <div id="personaGrid" class="persona-grid compact"></div>
+        </details>
+      </div>
     </header>
 
     <main>

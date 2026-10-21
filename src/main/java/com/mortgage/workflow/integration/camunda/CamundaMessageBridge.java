@@ -9,7 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * Correlates external events to mortgage-workflow message catch events; buffers when no subscription is open yet.
+ * Correlates external events to application-workflow message catch events; buffers when no subscription is open yet.
  */
 @Service
 public class CamundaMessageBridge {

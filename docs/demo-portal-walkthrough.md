@@ -38,5 +38,5 @@ On eDoc upload, set status **INVALID**. ECM worker sets `documentValid=false`; f
 
 ## Configuration
 
-- `mortgage-workflow.demo.enabled` / `DEMO_PORTAL_ENABLED` (default `true`) — disables `/api/demo/*` and static portal when `false`.
+- `application-workflow.demo.enabled` / `DEMO_PORTAL_ENABLED` (default `true`) — disables `/api/demo/*` and static portal when `false`.
 - Real Kafka path unchanged; portal calls the same Camunda messages as `POST /api/workflow/messages/*` with buffer support via `CamundaMessageBridge`.

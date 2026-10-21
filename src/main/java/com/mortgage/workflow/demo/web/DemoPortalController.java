@@ -29,7 +29,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/demo")
-@ConditionalOnProperty(prefix = "mortgage-workflow.demo", name = "enabled", havingValue = "true")
+@ConditionalOnProperty(prefix = "application-workflow.demo", name = "enabled", havingValue = "true")
 public class DemoPortalController {
 
 	private final DemoSessionService sessionService;

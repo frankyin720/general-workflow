@@ -1,9 +1,9 @@
-# Kafka ↔ Camunda（mortgage-workflow）对接说明
+# Kafka ↔ Camunda（application-workflow）对接说明
 
-面向 **ECM / eSign** 等外部系统与 **mortgage-workflow** 集成团队。mortgage-workflow 消费 Kafka 事件后，通过 Camunda 8 **Message Correlation** 推进 `mortgage-workflow` 中的等待点。
+面向 **ECM / eSign** 等外部系统与 **application-workflow** 集成团队。application-workflow 消费 Kafka 事件后，通过 Camunda 8 **Message Correlation** 推进 `application-workflow` 中的等待点。
 
-**BPMN 文件：** `src/main/resources/process/mortgage-workflow.bpmn`  
-**Postman：** `src/main/resources/collection/mortgage-workflow-camunda.postman_collection.json`（REST 等价路径，便于联调）
+**BPMN 文件：** `src/main/resources/process/application-workflow.bpmn`  
+**Postman：** `src/main/resources/collection/application-workflow-camunda.postman_collection.json`（REST 等价路径，便于联调）
 
 ---
 
@@ -16,7 +16,7 @@
 | `Event_waitEdocUpload` | Wait for eDoc Upload | `eDocUploadedEvent` | 进入子流程 `SubProcess_edocCollection` 后；文档不合规通知顾问后也会 **再次回到** 此等待点 |
 | `Event_waitEsignCompleted` | eSign Completed | `eSignCompletedEvent` | **自动批核**（`Task_updateStatusAutoApproved`）或 **人工批核通过**（`Task_updateStatusManualApproved`）之后，进入放款前 |
 
-**关联键（correlation key）：** 流程变量 **`applicationId`**，必须与启动 mortgage-workflow 时传入的 `applicationId` / 业务单号一致。
+**关联键（correlation key）：** 流程变量 **`applicationId`**，必须与启动 application-workflow 时传入的 `applicationId` / 业务单号一致。
 
 ```mermaid
 flowchart TB
@@ -65,12 +65,12 @@ Kafka 路径使用 `CamundaMessageBridge`：若实例尚未订阅消息（Camund
 ## 2. Topic 与消息体（JSON）
 
 - **Key：** 建议与 `applicationId` 相同（便于分区与排查；也参与幂等 fallback）。
-- **Value：** UTF-8 JSON，`Content-Type` 由生产方约定即可；mortgage-workflow 使用 Jackson 反序列化。
+- **Value：** UTF-8 JSON，`Content-Type` 由生产方约定即可；application-workflow 使用 Jackson 反序列化。
 - **Charset：** UTF-8。
 
 ### 2.1 `edoc.uploaded` → `eDocUploadedEvent`
 
-**默认 topic：** `edoc.uploaded`（`mortgage-workflow.integration.kafka.topics.edoc-uploaded`）
+**默认 topic：** `edoc.uploaded`（`application-workflow.integration.kafka.topics.edoc-uploaded`）
 
 ```json
 {
@@ -83,7 +83,7 @@ Kafka 路径使用 `CamundaMessageBridge`：若实例尚未订阅消息（Camund
 
 | 字段 | 必填 | 说明 |
 |------|------|------|
-| `applicationId` | 是 | 与 mortgage-workflow 启动变量一致，用作 **correlationKey** |
+| `applicationId` | 是 | 与 application-workflow 启动变量一致，用作 **correlationKey** |
 | `documentId` | 否 | 写入流程变量 `documentId` |
 | `status` | 否 | 写入流程变量 `documentStatus` |
 | `messageId` | 否 | 幂等去重优先使用；建议 ECM 每条事件唯一 ID |
@@ -92,7 +92,7 @@ Kafka 路径使用 `CamundaMessageBridge`：若实例尚未订阅消息（Camund
 
 ### 2.2 `esign.completed` → `eSignCompletedEvent`
 
-**默认 topic：** `esign.completed`（`mortgage-workflow.integration.kafka.topics.esign-completed`）
+**默认 topic：** `esign.completed`（`application-workflow.integration.kafka.topics.esign-completed`）
 
 ```json
 {
@@ -120,7 +120,7 @@ Kafka 路径使用 `CamundaMessageBridge`：若实例尚未订阅消息（Camund
 |-------------|--------|------|
 | `KAFKA_INTEGRATION_ENABLED` | `false` | `true` 时启用 `@KafkaListener` 与 `@EnableKafka` |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | `spring.kafka.bootstrap-servers` |
-| `KAFKA_CONSUMER_GROUP` | `mortgage-workflow` | Consumer group |
+| `KAFKA_CONSUMER_GROUP` | `application-workflow` | Consumer group |
 | `KAFKA_TOPIC_EDOC_UPLOADED` | `edoc.uploaded` | eDoc topic |
 | `KAFKA_TOPIC_ESIGN_COMPLETED` | `esign.completed` | eSign topic |
 | `REDIS_IDEMPOTENCY_ENABLED` | `false` | `true` 时使用 Redis `SET NX` 去重 |
@@ -129,9 +129,9 @@ Kafka 路径使用 `CamundaMessageBridge`：若实例尚未订阅消息（Camund
 | `IDEMPOTENCY_KEY_PREFIX` | `idempotency:` | Redis key 前缀 |
 | `CAMUNDA_GRPC_ADDRESS` | `http://localhost:26500` | Zeebe gRPC |
 | `CAMUNDA_REST_ADDRESS` | `http://localhost:8080` | Operate/API |
-| `SERVER_PORT` | `8081` | mortgage-workflow HTTP |
+| `SERVER_PORT` | `8081` | application-workflow HTTP |
 
-对应 `application.yaml` 中的 `mortgage-workflow.integration.*` 与 `spring.kafka.*`。
+对应 `application.yaml` 中的 `application-workflow.integration.*` 与 `spring.kafka.*`。
 
 ### 3.2 AWS MSK（IAM）
 
@@ -139,8 +139,8 @@ Kafka 路径使用 `CamundaMessageBridge`：若实例尚未订阅消息（Camund
 
 - `spring.kafka.properties.security.protocol=SASL_SSL`
 - `sasl.mechanism=AWS_MSK_IAM`
-- 默认 **`mortgage-workflow.integration.kafka.enabled=true`**
-- 默认 **`mortgage-workflow.integration.idempotency.enabled=true`**
+- 默认 **`application-workflow.integration.kafka.enabled=true`**
+- 默认 **`application-workflow.integration.idempotency.enabled=true`**
 
 生产 MSK 时请在运行环境配置 **MSK bootstrap brokers**（`KAFKA_BOOTSTRAP_SERVERS`）与 **ElastiCache Redis**。  
 `aws-msk-iam-auth` 等 IAM 客户端库需在部署侧按 AWS 文档加入 classpath（见 `application-aws-msk.yaml` 注释）。
@@ -158,7 +158,7 @@ Kafka 路径使用 `CamundaMessageBridge`：若实例尚未订阅消息（Camund
 
 ## 5. 联调顺序（Happy path）
 
-1. 启动 Camunda（如 c8run `:8080`）与 mortgage-workflow（`:8081`），`KAFKA_INTEGRATION_ENABLED=true` 且 Kafka 可达。
+1. 启动 Camunda（如 c8run `:8080`）与 application-workflow（`:8081`），`KAFKA_INTEGRATION_ENABLED=true` 且 Kafka 可达。
 2. `POST /api/workflow/etrack/start`，body 含 **`applicationId`**（记下该值）。
 3. 在 Operate 确认实例到达 **Wait for eDoc Upload**（或并行分支仍在跑征信）。
 4. 向 **`edoc.uploaded`** 发送 §2.1 JSON（`applicationId` 一致）。

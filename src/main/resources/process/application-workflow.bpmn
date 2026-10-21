@@ -18,9 +18,13 @@
       <bpmn:outgoing>Flow_createRecord_initChecklist</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:boundaryEvent id="BoundaryError_createRecordFailed" name="Create record failed" attachedToRef="Task_createApplicationRecord">
-      <bpmn:outgoing>Flow_createError_reject</bpmn:outgoing>
+      <bpmn:outgoing>Flow_createError_end</bpmn:outgoing>
       <bpmn:errorEventDefinition id="ErrorEventDefinition_createRecordFailed" errorRef="Error_createRecordFailed" />
     </bpmn:boundaryEvent>
+    <bpmn:endEvent id="EndEvent_submissionFailed" name="Submission failed">
+      <bpmn:documentation>Core banking could not create the application record; process ends without underwriting rejection handling.</bpmn:documentation>
+      <bpmn:incoming>Flow_createError_end</bpmn:incoming>
+    </bpmn:endEvent>
     <bpmn:serviceTask id="Task_initializeDocumentChecklist" name="Initialize Document Checklist">
       <bpmn:documentation>Build required document list from applicationType (Mortgage, LOC, etc.).</bpmn:documentation>
       <bpmn:extensionElements>
@@ -169,10 +173,15 @@
       <bpmn:incoming>Flow_creditTimeout_prepareRecord</bpmn:incoming>
       <bpmn:outgoing>Flow_creditFailure_join</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:parallelGateway id="Gateway_parallelJoin" name="Join eDocs / Credit">
-      <bpmn:incoming>Flow_edocSubprocess_join</bpmn:incoming>
+    <bpmn:exclusiveGateway id="Gateway_creditPathMerge" name="Credit path complete" default="Flow_creditMerged_join">
+      <bpmn:documentation>Merges successful credit check and credit-failure referral before parallel join (join must have exactly two branches from the split).</bpmn:documentation>
       <bpmn:incoming>Flow_creditCheck_join</bpmn:incoming>
       <bpmn:incoming>Flow_creditFailure_join</bpmn:incoming>
+      <bpmn:outgoing>Flow_creditMerged_join</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:parallelGateway id="Gateway_parallelJoin" name="Join eDocs / Credit">
+      <bpmn:incoming>Flow_edocSubprocess_join</bpmn:incoming>
+      <bpmn:incoming>Flow_creditMerged_join</bpmn:incoming>
       <bpmn:outgoing>Flow_join_riskAssessment</bpmn:outgoing>
     </bpmn:parallelGateway>
     <bpmn:businessRuleTask id="Task_automatedRiskAssessment" name="Automated Risk Assessment">
@@ -258,7 +267,6 @@
         </zeebe:taskHeaders>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_underwritingRejected</bpmn:incoming>
-      <bpmn:incoming>Flow_createError_reject</bpmn:incoming>
       <bpmn:outgoing>Flow_rejection_end</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:intermediateCatchEvent id="Event_waitEsignCompleted" name="eSign Completed">
@@ -339,7 +347,8 @@
     <bpmn:sequenceFlow id="Flow_split_waitEdoc" sourceRef="Gateway_parallelSplit" targetRef="SubProcess_edocCollection" />
     <bpmn:sequenceFlow id="Flow_split_creditCheck" sourceRef="Gateway_parallelSplit" targetRef="Task_triggerCreditCheckAndAml" />
     <bpmn:sequenceFlow id="Flow_edocSubprocess_join" sourceRef="SubProcess_edocCollection" targetRef="Gateway_parallelJoin" />
-    <bpmn:sequenceFlow id="Flow_creditCheck_join" sourceRef="Task_triggerCreditCheckAndAml" targetRef="Gateway_parallelJoin" />
+    <bpmn:sequenceFlow id="Flow_creditCheck_join" sourceRef="Task_triggerCreditCheckAndAml" targetRef="Gateway_creditPathMerge" />
+    <bpmn:sequenceFlow id="Flow_creditMerged_join" sourceRef="Gateway_creditPathMerge" targetRef="Gateway_parallelJoin" />
     <bpmn:sequenceFlow id="Flow_join_riskAssessment" sourceRef="Gateway_parallelJoin" targetRef="Task_automatedRiskAssessment" />
     <bpmn:sequenceFlow id="Flow_riskAssessment_gateway" sourceRef="Task_automatedRiskAssessment" targetRef="Gateway_riskDecision" />
     <bpmn:sequenceFlow id="Flow_autoApproved_waitEsign" sourceRef="Task_updateStatusAutoApproved" targetRef="Event_waitEsignCompleted" />
@@ -350,11 +359,11 @@
     <bpmn:sequenceFlow id="Flow_funded_end" sourceRef="Task_notifyAdvisorFunded" targetRef="EndEvent_applicationFunded" />
     <bpmn:sequenceFlow id="Flow_rejection_end" sourceRef="Task_handleUnderwritingRejection" targetRef="EndEvent_applicationRejected" />
     <bpmn:sequenceFlow id="Flow_underwritingSla_escalate" sourceRef="BoundaryTimer_underwritingSla" targetRef="Task_escalateUnderwritingReview" />
-    <bpmn:sequenceFlow id="Flow_createError_reject" sourceRef="BoundaryError_createRecordFailed" targetRef="Task_handleUnderwritingRejection" />
+    <bpmn:sequenceFlow id="Flow_createError_end" sourceRef="BoundaryError_createRecordFailed" targetRef="EndEvent_submissionFailed" />
     <bpmn:sequenceFlow id="Flow_creditError_recordManual" sourceRef="BoundaryError_creditHardDecline" targetRef="Task_recordCreditFailureForManualReview" />
     <bpmn:sequenceFlow id="Flow_creditTimeout_recordManual" sourceRef="BoundaryTimer_creditTimeout" targetRef="Task_prepareCreditTimeoutReferral" />
     <bpmn:sequenceFlow id="Flow_creditTimeout_prepareRecord" sourceRef="Task_prepareCreditTimeoutReferral" targetRef="Task_recordCreditFailureForManualReview" />
-    <bpmn:sequenceFlow id="Flow_creditFailure_join" sourceRef="Task_recordCreditFailureForManualReview" targetRef="Gateway_parallelJoin" />
+    <bpmn:sequenceFlow id="Flow_creditFailure_join" sourceRef="Task_recordCreditFailureForManualReview" targetRef="Gateway_creditPathMerge" />
     <bpmn:sequenceFlow id="Flow_ecmError_notify" sourceRef="BoundaryError_ecmUnavailable" targetRef="Task_notifyAdvisorDocumentIssue" />
     <bpmn:sequenceFlow id="Flow_ecmTimeout_notify" sourceRef="BoundaryTimer_ecmTimeout" targetRef="Task_notifyAdvisorDocumentIssue" />
     <bpmn:sequenceFlow id="Flow_fundingError_compensate" sourceRef="BoundaryError_fundingFailed" targetRef="SubProcess_fundingCompensation" />
@@ -384,6 +393,12 @@
       <bpmndi:BPMNShape id="Task_createApplicationRecord_di" bpmnElement="Task_createApplicationRecord">
         <dc:Bounds x="270" y="240" width="100" height="80" />
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_submissionFailed_di" bpmnElement="EndEvent_submissionFailed">
+        <dc:Bounds x="352" y="392" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="327" y="428" width="87" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_initializeDocumentChecklist_di" bpmnElement="Task_initializeDocumentChecklist">
         <dc:Bounds x="440" y="240" width="100" height="80" />
       </bpmndi:BPMNShape>
@@ -393,17 +408,9 @@
           <dc:Bounds x="670" y="266" width="62" height="27" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Task_triggerCreditCheckAndAml_di" bpmnElement="Task_triggerCreditCheckAndAml">
-        <dc:Bounds x="760" y="80" width="100" height="80" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Task_recordCreditFailureForManualReview_di" bpmnElement="Task_recordCreditFailureForManualReview">
-        <dc:Bounds x="1020" y="240" width="100" height="80" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Task_prepareCreditTimeoutReferral_di" bpmnElement="Task_prepareCreditTimeoutReferral">
-        <dc:Bounds x="776" y="240" width="100" height="80" />
-      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="SubProcess_edocCollection_di" bpmnElement="SubProcess_edocCollection" isExpanded="true">
         <dc:Bounds x="710" y="355" width="700" height="565" />
+        <bpmndi:BPMNLabel />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="StartEvent_edocSub_di" bpmnElement="StartEvent_edocSub">
         <dc:Bounds x="780" y="462" width="36" height="36" />
@@ -417,20 +424,20 @@
       <bpmndi:BPMNShape id="Task_validateDocumentViaEcm_di" bpmnElement="Task_validateDocumentViaEcm">
         <dc:Bounds x="920" y="440" width="100" height="80" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Task_markEdocsVerified_di" bpmnElement="Task_markEdocsVerified">
-        <dc:Bounds x="1210" y="440" width="100" height="80" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="EndEvent_edocSub_di" bpmnElement="EndEvent_edocSub">
-        <dc:Bounds x="1340" y="462" width="36" height="36" />
-      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Gateway_documentValid_di" bpmnElement="Gateway_documentValid" isMarkerVisible="true">
         <dc:Bounds x="1115" y="455" width="50" height="50" />
         <bpmndi:BPMNLabel>
           <dc:Bounds x="1113" y="417.5" width="54" height="27" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_markEdocsVerified_di" bpmnElement="Task_markEdocsVerified">
+        <dc:Bounds x="1210" y="440" width="100" height="80" />
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_notifyAdvisorDocumentIssue_di" bpmnElement="Task_notifyAdvisorDocumentIssue">
         <dc:Bounds x="950" y="620" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_edocSub_di" bpmnElement="EndEvent_edocSub">
+        <dc:Bounds x="1340" y="462" width="36" height="36" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="SubProcess_edocTimeoutReminder_di" bpmnElement="SubProcess_edocTimeoutReminder" isExpanded="true">
         <dc:Bounds x="816" y="740" width="474" height="150" />
@@ -467,6 +474,13 @@
           <dc:Bounds x="1038" y="545" width="84" height="14" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_documentValid_markVerified_di" bpmnElement="Flow_documentValid_markVerified">
+        <di:waypoint x="1165" y="480" />
+        <di:waypoint x="1210" y="480" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1177" y="488" width="24" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_documentInvalid_notify_di" bpmnElement="Flow_documentInvalid_notify">
         <di:waypoint x="1140" y="505" />
         <di:waypoint x="1140" y="660" />
@@ -474,11 +488,6 @@
         <bpmndi:BPMNLabel>
           <dc:Bounds x="1075" y="603" width="85" height="14" />
         </bpmndi:BPMNLabel>
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Flow_notifyIssue_backToWaitEdoc_di" bpmnElement="Flow_notifyIssue_backToWaitEdoc">
-        <di:waypoint x="950" y="660" />
-        <di:waypoint x="868" y="660" />
-        <di:waypoint x="868" y="498" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_edocSub_start_wait_di" bpmnElement="Flow_edocSub_start_wait">
         <di:waypoint x="816" y="480" />
@@ -492,17 +501,30 @@
         <di:waypoint x="1020" y="480" />
         <di:waypoint x="1115" y="480" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Flow_documentValid_markVerified_di" bpmnElement="Flow_documentValid_markVerified">
-        <di:waypoint x="1165" y="480" />
-        <di:waypoint x="1210" y="480" />
-        <bpmndi:BPMNLabel>
-          <dc:Bounds x="1177" y="488" width="24" height="14" />
-        </bpmndi:BPMNLabel>
+      <bpmndi:BPMNEdge id="Flow_notifyIssue_backToWaitEdoc_di" bpmnElement="Flow_notifyIssue_backToWaitEdoc">
+        <di:waypoint x="950" y="660" />
+        <di:waypoint x="868" y="660" />
+        <di:waypoint x="868" y="498" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_markVerified_subEnd_di" bpmnElement="Flow_markVerified_subEnd">
         <di:waypoint x="1310" y="480" />
         <di:waypoint x="1340" y="480" />
       </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Task_triggerCreditCheckAndAml_di" bpmnElement="Task_triggerCreditCheckAndAml">
+        <dc:Bounds x="760" y="80" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_prepareCreditTimeoutReferral_di" bpmnElement="Task_prepareCreditTimeoutReferral">
+        <dc:Bounds x="776" y="240" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_recordCreditFailureForManualReview_di" bpmnElement="Task_recordCreditFailureForManualReview">
+        <dc:Bounds x="1020" y="240" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_creditPathMerge_di" bpmnElement="Gateway_creditPathMerge" isMarkerVisible="true">
+        <dc:Bounds x="1320" y="255" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1304" y="231" width="82" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Gateway_parallelJoin_di" bpmnElement="Gateway_parallelJoin">
         <dc:Bounds x="1450" y="255" width="50" height="50" />
         <bpmndi:BPMNLabel>
@@ -515,11 +537,11 @@
       <bpmndi:BPMNShape id="Gateway_riskDecision_di" bpmnElement="Gateway_riskDecision" isMarkerVisible="true">
         <dc:Bounds x="1690" y="255" width="50" height="50" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="1675" y="305" width="81" height="14" />
+          <dc:Bounds x="1674" y="231" width="81" height="14" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_updateStatusAutoApproved_di" bpmnElement="Task_updateStatusAutoApproved">
-        <dc:Bounds x="1790" y="240" width="100" height="80" />
+        <dc:Bounds x="1950" y="240" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Task_manualUnderwritingReview_di" bpmnElement="Task_manualUnderwritingReview">
         <dc:Bounds x="1790" y="400" width="100" height="80" />
@@ -595,9 +617,9 @@
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="EndEvent_applicationRejected_di" bpmnElement="EndEvent_applicationRejected">
-        <dc:Bounds x="2322" y="552" width="36" height="36" />
+        <dc:Bounds x="2282" y="552" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="2313" y="588" width="54" height="27" />
+          <dc:Bounds x="2273" y="588" width="54" height="27" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="BoundaryError_fundingFailed_di" bpmnElement="BoundaryError_fundingFailed">
@@ -612,12 +634,6 @@
           <dc:Bounds x="1918" y="466" width="86" height="27" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="BoundaryError_createRecordFailed_di" bpmnElement="BoundaryError_createRecordFailed">
-        <dc:Bounds x="352" y="302" width="36" height="36" />
-        <bpmndi:BPMNLabel>
-          <dc:Bounds x="398" y="306" width="68" height="27" />
-        </bpmndi:BPMNLabel>
-      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="BoundaryTimer_creditTimeout_di" bpmnElement="BoundaryTimer_creditTimeout">
         <dc:Bounds x="808" y="142" width="36" height="36" />
         <bpmndi:BPMNLabel>
@@ -630,11 +646,17 @@
           <dc:Bounds x="833" y="178" width="55" height="27" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BoundaryError_createRecordFailed_di" bpmnElement="BoundaryError_createRecordFailed">
+        <dc:Bounds x="352" y="302" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="398" y="306" width="68" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Flow_riskAuto_approve_di" bpmnElement="Flow_riskAuto_approve">
         <di:waypoint x="1740" y="280" />
-        <di:waypoint x="1790" y="280" />
+        <di:waypoint x="1950" y="280" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="1732" y="255" width="66" height="14" />
+          <dc:Bounds x="1812" y="255" width="66" height="14" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_riskManual_review_di" bpmnElement="Flow_riskManual_review">
@@ -689,8 +711,12 @@
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_creditCheck_join_di" bpmnElement="Flow_creditCheck_join">
         <di:waypoint x="860" y="120" />
-        <di:waypoint x="1475" y="120" />
-        <di:waypoint x="1475" y="255" />
+        <di:waypoint x="1345" y="120" />
+        <di:waypoint x="1345" y="255" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_creditMerged_join_di" bpmnElement="Flow_creditMerged_join">
+        <di:waypoint x="1370" y="280" />
+        <di:waypoint x="1450" y="280" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_join_riskAssessment_di" bpmnElement="Flow_join_riskAssessment">
         <di:waypoint x="1500" y="280" />
@@ -701,7 +727,7 @@
         <di:waypoint x="1690" y="280" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_autoApproved_waitEsign_di" bpmnElement="Flow_autoApproved_waitEsign">
-        <di:waypoint x="1890" y="280" />
+        <di:waypoint x="2050" y="280" />
         <di:waypoint x="2290" y="280" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_manualReview_decisionGateway_di" bpmnElement="Flow_manualReview_decisionGateway">
@@ -727,17 +753,15 @@
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_rejection_end_di" bpmnElement="Flow_rejection_end">
         <di:waypoint x="2220" y="570" />
-        <di:waypoint x="2322" y="570" />
+        <di:waypoint x="2282" y="570" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_underwritingSla_escalate_di" bpmnElement="Flow_underwritingSla_escalate">
         <di:waypoint x="1890" y="498" />
         <di:waypoint x="1890" y="530" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Flow_createError_reject_di" bpmnElement="Flow_createError_reject">
+      <bpmndi:BPMNEdge id="Flow_createError_end_di" bpmnElement="Flow_createError_end">
         <di:waypoint x="370" y="338" />
-        <di:waypoint x="370" y="960" />
-        <di:waypoint x="2170" y="960" />
-        <di:waypoint x="2170" y="610" />
+        <di:waypoint x="370" y="392" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_creditError_recordManual_di" bpmnElement="Flow_creditError_recordManual">
         <di:waypoint x="878" y="160" />
@@ -754,11 +778,7 @@
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_creditFailure_join_di" bpmnElement="Flow_creditFailure_join">
         <di:waypoint x="1120" y="280" />
-        <di:waypoint x="1450" y="280" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Flow_fundingError_compensate_di" bpmnElement="Flow_fundingError_compensate">
-        <di:waypoint x="2490" y="338" />
-        <di:waypoint x="2490" y="380" />
+        <di:waypoint x="1345" y="280" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_ecmError_notify_di" bpmnElement="Flow_ecmError_notify">
         <di:waypoint x="1020" y="538" />
@@ -767,6 +787,10 @@
       <bpmndi:BPMNEdge id="Flow_ecmTimeout_notify_di" bpmnElement="Flow_ecmTimeout_notify">
         <di:waypoint x="986" y="538" />
         <di:waypoint x="986" y="620" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_fundingError_compensate_di" bpmnElement="Flow_fundingError_compensate">
+        <di:waypoint x="2490" y="338" />
+        <di:waypoint x="2490" y="380" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
