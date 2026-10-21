@@ -7,13 +7,18 @@ import com.mortgage.workflow.demo.config.DemoProperties;
 import com.mortgage.workflow.demo.integration.DemoIntegrationEvent;
 import com.mortgage.workflow.demo.integration.DemoIntegrationLog;
 import com.mortgage.workflow.demo.model.DemoApplicationSummary;
+import com.mortgage.workflow.demo.model.DemoFlowProfile;
 import com.mortgage.workflow.demo.service.DemoPortalService;
+import com.mortgage.workflow.demo.web.dto.DemoAppraisalRequest;
 import com.mortgage.workflow.demo.web.dto.DemoApplicationStatusView;
 import com.mortgage.workflow.demo.web.dto.DemoEdocUploadRequest;
+import com.mortgage.workflow.demo.web.dto.DemoHumanTaskDecisionRequest;
+import com.mortgage.workflow.demo.web.dto.DemoReasonRequest;
 import com.mortgage.workflow.demo.web.dto.DemoStartApplicationRequest;
-import com.mortgage.workflow.demo.web.dto.DemoUnderwritingDecisionRequest;
 import com.mortgage.workflow.web.dto.UserTaskView;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,7 +34,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/demo")
-@ConditionalOnProperty(prefix = "mortgage-workflow.demo", name = "enabled", havingValue = "true")
+@ConditionalOnProperty(prefix = "application-workflow.demo", name = "enabled", havingValue = "true")
 public class DemoPortalController {
 
 	private final DemoSessionService sessionService;
@@ -51,16 +56,24 @@ public class DemoPortalController {
 		this.integrationLog = integrationLog;
 	}
 
+	@GetMapping("/flow-profiles")
+	public List<Map<String, String>> flowProfiles() {
+		return Arrays.stream(DemoFlowProfile.values())
+				.map(p -> Map.of("name", p.name(), "description", p.description()))
+				.toList();
+	}
+
 	@PostMapping("/applications")
 	public DemoApplicationSummary startApplication(
 			@RequestHeader(name = DemoAuthController.SESSION_HEADER, required = false) String token,
 			@RequestBody(required = false) DemoStartApplicationRequest request) {
-		return demoPortalService.startApplication(currentUser(token), request != null ? request : new DemoStartApplicationRequest(null, null, null));
+		return demoPortalService.startApplication(currentUser(token),
+				request != null ? request : new DemoStartApplicationRequest(null, null, null));
 	}
 
 	@GetMapping("/applications")
 	public List<DemoApplicationSummary> listApplications(
-			@RequestHeader(name = DemoAuthController.SESSION_HEADER) String token) {
+			@RequestHeader(name = DemoAuthController.SESSION_HEADER, required = false) String token) {
 		return demoPortalService.listApplications(currentUser(token));
 	}
 
@@ -77,10 +90,17 @@ public class DemoPortalController {
 			@RequestHeader(name = DemoAuthController.SESSION_HEADER, required = false) String token,
 			@PathVariable String applicationId,
 			@RequestBody(required = false) DemoEdocUploadRequest request) {
-		demoPortalService.simulateEdocUpload(
-				currentUser(token),
-				applicationId,
-				request != null ? request : new DemoEdocUploadRequest(null, null));
+		demoPortalService.simulateEdocUpload(currentUser(token), applicationId,
+				request != null ? request : new DemoEdocUploadRequest(null, null, null));
+	}
+
+	@PostMapping("/applications/{applicationId}/appraisal-completed")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	public void appraisalCompleted(
+			@RequestHeader(name = DemoAuthController.SESSION_HEADER, required = false) String token,
+			@PathVariable String applicationId,
+			@RequestBody(required = false) DemoAppraisalRequest request) {
+		demoPortalService.simulateAppraisalCompleted(currentUser(token), applicationId, request);
 	}
 
 	@PostMapping("/applications/{applicationId}/esign-complete")
@@ -91,19 +111,46 @@ public class DemoPortalController {
 		demoPortalService.simulateEsignComplete(currentUser(token), applicationId);
 	}
 
-	@GetMapping("/underwriting/tasks")
-	public List<UserTaskView> underwritingTasks(
-			@RequestHeader(name = DemoAuthController.SESSION_HEADER) String token) {
-		return demoPortalService.listUnderwritingTasks(currentUser(token));
+	@PostMapping("/applications/{applicationId}/client-declined")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	public void clientDeclined(
+			@RequestHeader(name = DemoAuthController.SESSION_HEADER, required = false) String token,
+			@PathVariable String applicationId,
+			@RequestBody(required = false) DemoReasonRequest request) {
+		demoPortalService.simulateClientDeclined(currentUser(token), applicationId, request);
 	}
 
-	@PostMapping("/underwriting/tasks/{userTaskKey}/complete")
+	@PostMapping("/applications/{applicationId}/closing-confirmed")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
-	public void completeUnderwriting(
+	public void closingConfirmed(
+			@RequestHeader(name = DemoAuthController.SESSION_HEADER, required = false) String token,
+			@PathVariable String applicationId) {
+		demoPortalService.simulateClosingDayConfirmation(currentUser(token), applicationId);
+	}
+
+	@PostMapping("/applications/{applicationId}/withdraw")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	public void withdraw(
+			@RequestHeader(name = DemoAuthController.SESSION_HEADER, required = false) String token,
+			@PathVariable String applicationId,
+			@RequestBody(required = false) DemoReasonRequest request) {
+		demoPortalService.simulateWithdrawal(currentUser(token), applicationId, request);
+	}
+
+	@GetMapping("/human-tasks")
+	public List<UserTaskView> humanTasks(
+			@RequestHeader(name = DemoAuthController.SESSION_HEADER, required = false) String token,
+			@RequestParam(required = false) String applicationId) {
+		return demoPortalService.listHumanTasks(currentUser(token), applicationId);
+	}
+
+	@PostMapping("/human-tasks/{userTaskKey}/complete")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	public void completeHumanTask(
 			@RequestHeader(name = DemoAuthController.SESSION_HEADER, required = false) String token,
 			@PathVariable long userTaskKey,
-			@RequestBody DemoUnderwritingDecisionRequest request) {
-		demoPortalService.completeUnderwritingTask(currentUser(token), userTaskKey, request);
+			@RequestBody DemoHumanTaskDecisionRequest request) {
+		demoPortalService.completeHumanTask(currentUser(token), userTaskKey, request);
 	}
 
 	@GetMapping("/integration-events")

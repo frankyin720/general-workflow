@@ -1,0 +1,40 @@
+{
+  "components": [
+    {
+      "type": "text",
+      "id": "Field_commitment_letter_issue_form_T",
+      "text": "## Commitment letter generation failed\nFix the template / data issue, then complete this task to regenerate the letter.",
+      "layout": {
+        "row": "Row_1"
+      }
+    },
+    {
+      "type": "textfield",
+      "id": "Field_commitment_letter_issue_form_C1",
+      "key": "documentGenerationError",
+      "label": "Error",
+      "readonly": true,
+      "layout": {
+        "row": "Row_2"
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "Field_commitment_letter_issue_form_C2",
+      "key": "commitmentFixNotes",
+      "label": "Resolution notes",
+      "layout": {
+        "row": "Row_3"
+      }
+    }
+  ],
+  "type": "default",
+  "executionPlatform": "Camunda Cloud",
+  "executionPlatformVersion": "8.10.0",
+  "exporter": {
+    "name": "Camunda Modeler",
+    "version": "5.52.0"
+  },
+  "schemaVersion": 18,
+  "id": "commitment_letter_issue_form"
+}

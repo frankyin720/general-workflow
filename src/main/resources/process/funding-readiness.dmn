@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/" xmlns:dc="http://www.omg.org/spec/DMN/20180521/DC/" xmlns:di="http://www.omg.org/spec/DMN/20180521/DI/" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_funding_readiness" name="Funding readiness" namespace="http://camunda.org/schema/1.0/dmn" exporter="Camunda Modeler" exporterVersion="5.52.0" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.10.0">
+  <decision id="funding_readiness" name="Funding readiness">
+    <informationRequirement id="InfoReq_fr_closing"><requiredInput href="#Input_fr_closing" /></informationRequirement>
+    <informationRequirement id="InfoReq_fr_solicitor"><requiredInput href="#Input_fr_solicitor" /></informationRequirement>
+    <informationRequirement id="InfoReq_fr_insReq"><requiredInput href="#Input_fr_insReq" /></informationRequirement>
+    <informationRequirement id="InfoReq_fr_insConf"><requiredInput href="#Input_fr_insConf" /></informationRequirement>
+    <informationRequirement id="InfoReq_fr_conditions"><requiredInput href="#Input_fr_conditions" /></informationRequirement>
+    <informationRequirement id="InfoReq_fr_hold"><requiredInput href="#Input_fr_hold" /></informationRequirement>
+    <decisionTable id="DecisionTable_funding_readiness" hitPolicy="FIRST">
+      <input id="In_fr_closing" label="Closing confirmed">
+        <inputExpression id="InExpr_fr_closing" typeRef="boolean"><text>closingConfirmed</text></inputExpression>
+      </input>
+      <input id="In_fr_solicitor" label="Solicitor instructed">
+        <inputExpression id="InExpr_fr_solicitor" typeRef="boolean"><text>solicitorInstructionsSent</text></inputExpression>
+      </input>
+      <input id="In_fr_insReq" label="Default insurance required">
+        <inputExpression id="InExpr_fr_insReq" typeRef="boolean"><text>insuranceRequired</text></inputExpression>
+      </input>
+      <input id="In_fr_insConf" label="Default insurance confirmed">
+        <inputExpression id="InExpr_fr_insConf" typeRef="boolean"><text>insuranceConfirmed</text></inputExpression>
+      </input>
+      <input id="In_fr_conditions" label="Outstanding approval conditions">
+        <inputExpression id="InExpr_fr_conditions" typeRef="number"><text>outstandingConditions</text></inputExpression>
+      </input>
+      <input id="In_fr_hold" label="Manual funding hold">
+        <inputExpression id="InExpr_fr_hold" typeRef="boolean"><text>fundingHold</text></inputExpression>
+      </input>
+      <output id="Out_fr_decision" label="Decision" name="decision" typeRef="string">
+        <outputValues id="OutVals_fr_decision"><text>"FUND","HOLD"</text></outputValues>
+      </output>
+      <output id="Out_fr_reason" label="Reason" name="reason" typeRef="string" />
+
+      <rule id="Rule_fr_closing">
+        <inputEntry id="Rule_fr_closing_1"><text>false</text></inputEntry>
+        <inputEntry id="Rule_fr_closing_2"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_closing_3"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_closing_4"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_closing_5"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_closing_6"><text>-</text></inputEntry>
+        <outputEntry id="Rule_fr_closing_o1"><text>"HOLD"</text></outputEntry>
+        <outputEntry id="Rule_fr_closing_o2"><text>"Closing day not confirmed by solicitor"</text></outputEntry>
+      </rule>
+      <rule id="Rule_fr_solicitor">
+        <inputEntry id="Rule_fr_solicitor_1"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_solicitor_2"><text>false</text></inputEntry>
+        <inputEntry id="Rule_fr_solicitor_3"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_solicitor_4"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_solicitor_5"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_solicitor_6"><text>-</text></inputEntry>
+        <outputEntry id="Rule_fr_solicitor_o1"><text>"HOLD"</text></outputEntry>
+        <outputEntry id="Rule_fr_solicitor_o2"><text>"Solicitor / notary instructions not sent"</text></outputEntry>
+      </rule>
+      <rule id="Rule_fr_insurance">
+        <inputEntry id="Rule_fr_insurance_1"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_insurance_2"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_insurance_3"><text>true</text></inputEntry>
+        <inputEntry id="Rule_fr_insurance_4"><text>false</text></inputEntry>
+        <inputEntry id="Rule_fr_insurance_5"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_insurance_6"><text>-</text></inputEntry>
+        <outputEntry id="Rule_fr_insurance_o1"><text>"HOLD"</text></outputEntry>
+        <outputEntry id="Rule_fr_insurance_o2"><text>"Mortgage default insurance (CMHC / Sagen / Canada Guaranty) not confirmed"</text></outputEntry>
+      </rule>
+      <rule id="Rule_fr_conditions">
+        <inputEntry id="Rule_fr_conditions_1"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_conditions_2"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_conditions_3"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_conditions_4"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_conditions_5"><text>&gt; 0</text></inputEntry>
+        <inputEntry id="Rule_fr_conditions_6"><text>-</text></inputEntry>
+        <outputEntry id="Rule_fr_conditions_o1"><text>"HOLD"</text></outputEntry>
+        <outputEntry id="Rule_fr_conditions_o2"><text>"Outstanding approval conditions must be satisfied before funding"</text></outputEntry>
+      </rule>
+      <rule id="Rule_fr_hold">
+        <inputEntry id="Rule_fr_hold_1"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_hold_2"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_hold_3"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_hold_4"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_hold_5"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_hold_6"><text>true</text></inputEntry>
+        <outputEntry id="Rule_fr_hold_o1"><text>"HOLD"</text></outputEntry>
+        <outputEntry id="Rule_fr_hold_o2"><text>"Manual funding hold placed by operations"</text></outputEntry>
+      </rule>
+      <rule id="Rule_fr_fund">
+        <inputEntry id="Rule_fr_fund_1"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_fund_2"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_fund_3"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_fund_4"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_fund_5"><text>-</text></inputEntry>
+        <inputEntry id="Rule_fr_fund_6"><text>-</text></inputEntry>
+        <outputEntry id="Rule_fr_fund_o1"><text>"FUND"</text></outputEntry>
+        <outputEntry id="Rule_fr_fund_o2"><text>"All funding preconditions satisfied"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+  <inputData id="Input_fr_closing" name="closingConfirmed" />
+  <inputData id="Input_fr_solicitor" name="solicitorInstructionsSent" />
+  <inputData id="Input_fr_insReq" name="insuranceRequired" />
+  <inputData id="Input_fr_insConf" name="insuranceConfirmed" />
+  <inputData id="Input_fr_conditions" name="outstandingConditions" />
+  <inputData id="Input_fr_hold" name="fundingHold" />
+  <dmndi:DMNDI>
+    <dmndi:DMNDiagram id="DMNDiagram_funding_readiness">
+      <dmndi:DMNShape id="DMNShape_fr" dmnElementRef="funding_readiness"><dc:Bounds height="80" width="180" x="480" y="80" /></dmndi:DMNShape>
+      <dmndi:DMNShape id="DMNShape_fr_closing" dmnElementRef="Input_fr_closing"><dc:Bounds height="45" width="125" x="60" y="260" /></dmndi:DMNShape>
+      <dmndi:DMNShape id="DMNShape_fr_solicitor" dmnElementRef="Input_fr_solicitor"><dc:Bounds height="45" width="125" x="230" y="260" /></dmndi:DMNShape>
+      <dmndi:DMNShape id="DMNShape_fr_insReq" dmnElementRef="Input_fr_insReq"><dc:Bounds height="45" width="125" x="400" y="260" /></dmndi:DMNShape>
+      <dmndi:DMNShape id="DMNShape_fr_insConf" dmnElementRef="Input_fr_insConf"><dc:Bounds height="45" width="125" x="570" y="260" /></dmndi:DMNShape>
+      <dmndi:DMNShape id="DMNShape_fr_conditions" dmnElementRef="Input_fr_conditions"><dc:Bounds height="45" width="125" x="740" y="260" /></dmndi:DMNShape>
+      <dmndi:DMNShape id="DMNShape_fr_hold" dmnElementRef="Input_fr_hold"><dc:Bounds height="45" width="125" x="910" y="260" /></dmndi:DMNShape>
+      <dmndi:DMNEdge id="DMNEdge_fr_1" dmnElementRef="InfoReq_fr_closing"><di:waypoint x="123" y="260" /><di:waypoint x="500" y="160" /></dmndi:DMNEdge>
+      <dmndi:DMNEdge id="DMNEdge_fr_2" dmnElementRef="InfoReq_fr_solicitor"><di:waypoint x="293" y="260" /><di:waypoint x="525" y="160" /></dmndi:DMNEdge>
+      <dmndi:DMNEdge id="DMNEdge_fr_3" dmnElementRef="InfoReq_fr_insReq"><di:waypoint x="463" y="260" /><di:waypoint x="550" y="160" /></dmndi:DMNEdge>
+      <dmndi:DMNEdge id="DMNEdge_fr_4" dmnElementRef="InfoReq_fr_insConf"><di:waypoint x="633" y="260" /><di:waypoint x="575" y="160" /></dmndi:DMNEdge>
+      <dmndi:DMNEdge id="DMNEdge_fr_5" dmnElementRef="InfoReq_fr_conditions"><di:waypoint x="803" y="260" /><di:waypoint x="600" y="160" /></dmndi:DMNEdge>
+      <dmndi:DMNEdge id="DMNEdge_fr_6" dmnElementRef="InfoReq_fr_hold"><di:waypoint x="973" y="260" /><di:waypoint x="625" y="160" /></dmndi:DMNEdge>
+    </dmndi:DMNDiagram>
+  </dmndi:DMNDI>
+</definitions>

@@ -1,0 +1,72 @@
+{
+  "components": [
+    {
+      "type": "text",
+      "id": "Field_manual_document_review_form_T",
+      "text": "## Manual document review\nECM could not validate this document (service unavailable or timed out). Review the uploaded file manually.",
+      "layout": {
+        "row": "Row_1"
+      }
+    },
+    {
+      "type": "textfield",
+      "id": "Field_manual_document_review_form_D1",
+      "key": "lastValidatedDocumentId",
+      "label": "Document id",
+      "readonly": true,
+      "layout": {
+        "row": "Row_2"
+      }
+    },
+    {
+      "type": "textfield",
+      "id": "Field_manual_document_review_form_D2",
+      "key": "lastValidatedDocumentType",
+      "label": "Document type",
+      "readonly": true,
+      "layout": {
+        "row": "Row_3"
+      }
+    },
+    {
+      "type": "radio",
+      "id": "Field_manual_document_review_form_D3",
+      "key": "documentValid",
+      "label": "Document acceptable?",
+      "values": [
+        {
+          "value": true,
+          "label": "Yes — accept document"
+        },
+        {
+          "value": false,
+          "label": "No — request re-upload"
+        }
+      ],
+      "validate": {
+        "required": true
+      },
+      "layout": {
+        "row": "Row_4"
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "Field_manual_document_review_form_D4",
+      "key": "documentReviewNotes",
+      "label": "Notes",
+      "layout": {
+        "row": "Row_5"
+      }
+    }
+  ],
+  "type": "default",
+  "executionPlatform": "Camunda Cloud",
+  "executionPlatformVersion": "8.10.0",
+  "exporter": {
+    "name": "Camunda Modeler",
+    "version": "5.52.0"
+  },
+  "schemaVersion": 18,
+  "id": "manual_document_review_form"
+}

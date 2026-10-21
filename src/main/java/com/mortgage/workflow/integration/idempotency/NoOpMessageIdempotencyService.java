@@ -4,7 +4,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 @Service
-@ConditionalOnProperty(prefix = "mortgage-workflow.integration.idempotency", name = "enabled", havingValue = "false", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "application-workflow.integration.idempotency", name = "enabled", havingValue = "false", matchIfMissing = true)
 public class NoOpMessageIdempotencyService implements MessageIdempotencyService {
 
 	@Override

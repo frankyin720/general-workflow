@@ -3,11 +3,11 @@ server:
 
 spring:
   application:
-    name: mortgage-workflow
+    name: application-workflow
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
-      group-id: ${KAFKA_CONSUMER_GROUP:mortgage-workflow}
+      group-id: ${KAFKA_CONSUMER_GROUP:application-workflow}
       auto-offset-reset: earliest
       enable-auto-commit: false
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
@@ -36,10 +36,10 @@ camunda:
     rest-address: ${CAMUNDA_REST_ADDRESS:http://localhost:8080}
     worker:
       defaults:
-        name: mortgage-workflow-worker
+        name: application-workflow-worker
         max-jobs-active: 32
 
-mortgage-workflow:
+application-workflow:
   demo:
     enabled: ${DEMO_PORTAL_ENABLED:true}
     conductor-mode: ${DEMO_CONDUCTOR_MODE:true}

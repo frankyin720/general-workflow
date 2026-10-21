@@ -1,7 +1,9 @@
 package com.mortgage.workflow.service;
 
 import io.camunda.client.CamundaClient;
+import io.camunda.client.api.search.enums.ElementInstanceState;
 import io.camunda.client.api.search.enums.JobState;
+import io.camunda.client.api.search.response.ElementInstance;
 import io.camunda.client.api.search.response.Incident;
 import io.camunda.client.api.search.response.Job;
 import java.util.List;
@@ -55,6 +57,21 @@ public class ProcessDiagnosticsService {
 				.toList();
 	}
 
+	/** Currently active BPMN elements (tasks, events, subprocesses) of the instance. */
+	public List<ActiveElement> activeElements(long processInstanceKey) {
+		return camundaClient.newElementInstanceSearchRequest()
+				.filter(filter -> {
+					filter.processInstanceKey(processInstanceKey);
+					filter.state(ElementInstanceState.ACTIVE);
+				})
+				.page(p -> p.limit(50))
+				.execute()
+				.items()
+				.stream()
+				.map(this::toActiveElement)
+				.toList();
+	}
+
 	private JobSummary toJobSummary(Job job) {
 		return new JobSummary(
 				job.getType(),
@@ -68,9 +85,20 @@ public class ProcessDiagnosticsService {
 				incident.getErrorMessage());
 	}
 
+	private ActiveElement toActiveElement(ElementInstance element) {
+		return new ActiveElement(
+				element.getElementId(),
+				element.getElementName(),
+				element.getType() != null ? element.getType().name() : null,
+				Boolean.TRUE.equals(element.getIncident()));
+	}
+
 	public record JobSummary(String type, String state, int retries) {
 	}
 
 	public record IncidentSummary(String elementId, String errorMessage) {
+	}
+
+	public record ActiveElement(String elementId, String elementName, String type, boolean hasIncident) {
 	}
 }

@@ -17,8 +17,20 @@ import org.springframework.stereotype.Service;
 @Service
 public class WorkflowTaskService {
 
+	public static final String PROCESS_ID = "mortgage_workflow";
+
+	/** Branch A: a financial document was uploaded to ECM (variables: documentId, documentType, documentStatus). */
 	public static final String MESSAGE_EDOC_UPLOADED = "eDocUploadedEvent";
+	/** Branch B: appraisal report received (variables: appraisedValue, appraisalReportId). */
+	public static final String MESSAGE_APPRAISAL_COMPLETED = "appraisalCompletedEvent";
+	/** Client signed the commitment letter (variables: eSignEnvelopeId, eSignStatus). */
 	public static final String MESSAGE_ESIGN_COMPLETED = "eSignCompletedEvent";
+	/** Client explicitly declined the commitment letter (variables: clientDeclineReason). */
+	public static final String MESSAGE_CLIENT_DECLINED_COMMITMENT = "clientDeclinedCommitmentEvent";
+	/** Solicitor / notary confirmed closing day (variables: closingStatus, closingDate). */
+	public static final String MESSAGE_CLOSING_DAY_CONFIRMED = "closingDayConfirmedEvent";
+	/** Client withdrew the application at any point (variables: cancelReason). */
+	public static final String MESSAGE_APPLICATION_WITHDRAWN = "applicationWithdrawnEvent";
 
 	private final CamundaClient camundaClient;
 	private final CamundaMessageBridge camundaMessageBridge;
@@ -28,10 +40,10 @@ public class WorkflowTaskService {
 		this.camundaMessageBridge = camundaMessageBridge;
 	}
 
-	public StartProcessResponse startMortgageWorkflow(StartProcessRequest request) {
+	public StartProcessResponse startApplicationWorkflow(StartProcessRequest request) {
 		String applicationId = request.applicationId();
 		var command = camundaClient.newCreateInstanceCommand()
-				.bpmnProcessId("mortgage_workflow")
+				.bpmnProcessId(PROCESS_ID)
 				.latestVersion();
 
 		Map<String, Object> startVariables = new HashMap<>();
@@ -53,6 +65,13 @@ public class WorkflowTaskService {
 		}
 		if (request.customerName() != null && !request.customerName().isBlank()) {
 			startVariables.put("customerName", request.customerName());
+		}
+		if (request.financials() != null) {
+			request.financials().forEach((key, value) -> {
+				if (value != null) {
+					startVariables.put(key, value);
+				}
+			});
 		}
 		if (!startVariables.isEmpty()) {
 			command = command.variables(startVariables);
@@ -90,8 +109,37 @@ public class WorkflowTaskService {
 				.toList();
 	}
 
+	/** All open human tasks of the process (any candidate group), oldest first. */
+	public List<UserTaskView> listOpenUserTasksForProcess() {
+		return camundaClient.newUserTaskSearchRequest()
+				.filter(filter -> {
+					filter.state(UserTaskState.CREATED);
+					filter.bpmnProcessId(PROCESS_ID);
+				})
+				.sort(sort -> sort.creationDate().asc())
+				.page(p -> p.limit(100))
+				.execute()
+				.items()
+				.stream()
+				.map(this::toView)
+				.toList();
+	}
+
+	public List<UserTaskView> listOpenUserTasksForInstance(long processInstanceKey) {
+		return camundaClient.newUserTaskSearchRequest()
+				.filter(filter -> {
+					filter.state(UserTaskState.CREATED);
+					filter.processInstanceKey(processInstanceKey);
+				})
+				.execute()
+				.items()
+				.stream()
+				.map(this::toView)
+				.toList();
+	}
+
 	public void assignUserTask(long userTaskKey, String assignee) {
-		camundaClient.newAssignUserTaskCommand(userTaskKey).assignee(assignee).execute();
+		camundaClient.newAssignUserTaskCommand(userTaskKey).assignee(assignee).allowOverride(true).execute();
 	}
 
 	public MessageCorrelationResponse correlateMessage(String messageName, String applicationId) {
@@ -132,10 +180,12 @@ public class WorkflowTaskService {
 				task.getName(),
 				task.getState() != null ? task.getState().name() : null,
 				task.getAssignee(),
+				task.getCandidateGroups() != null ? task.getCandidateGroups() : List.of(),
 				task.getElementId(),
 				task.getProcessInstanceKey(),
 				task.getBpmnProcessId(),
-				task.getBusinessId());
+				task.getBusinessId(),
+				task.getCreationDate() != null ? task.getCreationDate().toString() : null);
 	}
 
 }

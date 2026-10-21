@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/" xmlns:dc="http://www.omg.org/spec/DMN/20180521/DC/" xmlns:di="http://www.omg.org/spec/DMN/20180521/DI/" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_debt_service_underwriting" name="Debt service and risk underwriting" namespace="http://camunda.org/schema/1.0/dmn" exporter="Camunda Modeler" exporterVersion="5.52.0" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.10.0">
+  <decision id="debt_service_underwriting" name="Debt service &amp; risk underwriting">
+    <informationRequirement id="InfoReq_uw_gds"><requiredInput href="#Input_uw_gds" /></informationRequirement>
+    <informationRequirement id="InfoReq_uw_tds"><requiredInput href="#Input_uw_tds" /></informationRequirement>
+    <informationRequirement id="InfoReq_uw_ltv"><requiredInput href="#Input_uw_ltv" /></informationRequirement>
+    <informationRequirement id="InfoReq_uw_score"><requiredInput href="#Input_uw_score" /></informationRequirement>
+    <informationRequirement id="InfoReq_uw_creditOutcome"><requiredInput href="#Input_uw_creditOutcome" /></informationRequirement>
+    <decisionTable id="DecisionTable_debt_service_underwriting" hitPolicy="FIRST">
+      <input id="In_uw_gds" label="GDS %">
+        <inputExpression id="InExpr_uw_gds" typeRef="number"><text>gdsRatio</text></inputExpression>
+      </input>
+      <input id="In_uw_tds" label="TDS %">
+        <inputExpression id="InExpr_uw_tds" typeRef="number"><text>tdsRatio</text></inputExpression>
+      </input>
+      <input id="In_uw_ltv" label="LTV %">
+        <inputExpression id="InExpr_uw_ltv" typeRef="number"><text>ltvRatio</text></inputExpression>
+      </input>
+      <input id="In_uw_score" label="Credit score">
+        <inputExpression id="InExpr_uw_score" typeRef="number"><text>creditScore</text></inputExpression>
+      </input>
+      <input id="In_uw_creditOutcome" label="Credit bureau outcome">
+        <inputExpression id="InExpr_uw_creditOutcome" typeRef="string"><text>creditCheckOutcome</text></inputExpression>
+        <inputValues id="InVals_uw_creditOutcome"><text>"COMPLETED","TIMEOUT","HARD_DECLINE"</text></inputValues>
+      </input>
+      <output id="Out_uw_route" label="Route" name="route" typeRef="string">
+        <outputValues id="OutVals_uw_route"><text>"AUTO_APPROVE","MANUAL_REVIEW","DECLINE"</text></outputValues>
+      </output>
+      <output id="Out_uw_reason" label="Reason" name="reason" typeRef="string" />
+      <output id="Out_uw_insurance" label="Default insurance required" name="insuranceRequired" typeRef="boolean" />
+
+      <rule id="Rule_uw_ltvMax">
+        <description>Regulatory maximum LTV 95%</description>
+        <inputEntry id="Rule_uw_ltvMax_1"><text>-</text></inputEntry>
+        <inputEntry id="Rule_uw_ltvMax_2"><text>-</text></inputEntry>
+        <inputEntry id="Rule_uw_ltvMax_3"><text>&gt; 95</text></inputEntry>
+        <inputEntry id="Rule_uw_ltvMax_4"><text>-</text></inputEntry>
+        <inputEntry id="Rule_uw_ltvMax_5"><text>-</text></inputEntry>
+        <outputEntry id="Rule_uw_ltvMax_o1"><text>"DECLINE"</text></outputEntry>
+        <outputEntry id="Rule_uw_ltvMax_o2"><text>"LTV exceeds 95% maximum"</text></outputEntry>
+        <outputEntry id="Rule_uw_ltvMax_o3"><text>true</text></outputEntry>
+      </rule>
+      <rule id="Rule_uw_tdsHard">
+        <inputEntry id="Rule_uw_tdsHard_1"><text>-</text></inputEntry>
+        <inputEntry id="Rule_uw_tdsHard_2"><text>&gt; 50</text></inputEntry>
+        <inputEntry id="Rule_uw_tdsHard_3"><text>-</text></inputEntry>
+        <inputEntry id="Rule_uw_tdsHard_4"><text>-</text></inputEntry>
+        <inputEntry id="Rule_uw_tdsHard_5"><text>-</text></inputEntry>
+        <outputEntry id="Rule_uw_tdsHard_o1"><text>"DECLINE"</text></outputEntry>
+        <outputEntry id="Rule_uw_tdsHard_o2"><text>"TDS above hard limit (50%)"</text></outputEntry>
+        <outputEntry id="Rule_uw_tdsHard_o3"><text>ltvRatio &gt; 80</text></outputEntry>
+      </rule>
+      <rule id="Rule_uw_gdsHard">
+        <inputEntry id="Rule_uw_gdsHard_1"><text>&gt; 45</text></inputEntry>
+        <inputEntry id="Rule_uw_gdsHard_2"><text>-</text></inputEntry>
+        <inputEntry id="Rule_uw_gdsHard_3"><text>-</text></inputEntry>
+        <inputEntry id="Rule_uw_gdsHard_4"><text>-</text></inputEntry>
+        <inputEntry id="Rule_uw_gdsHard_5"><text>-</text></inputEntry>
+        <outputEntry id="Rule_uw_gdsHard_o1"><text>"DECLINE"</text></outputEntry>
+        <outputEntry id="Rule_uw_gdsHard_o2"><text>"GDS above hard limit (45%)"</text></outputEntry>
+        <outputEntry id="Rule_uw_gdsHard_o3"><text>ltvRatio &gt; 80</text></outputEntry>
+      </rule>
+      <rule id="Rule_uw_scoreMin">
+        <inputEntry id="Rule_uw_scoreMin_1"><text>-</text></inputEntry>
+        <inputEntry id="Rule_uw_scoreMin_2"><text>-</text></inputEntry>
+        <inputEntry id="Rule_uw_scoreMin_3"><text>-</text></inputEntry>
+        <inputEntry id="Rule_uw_scoreMin_4"><text>&lt; 600</text></inputEntry>
+        <inputEntry id="Rule_uw_scoreMin_5"><text>"COMPLETED"</text></inputEntry>
+        <outputEntry id="Rule_uw_scoreMin_o1"><text>"DECLINE"</text></outputEntry>
+        <outputEntry id="Rule_uw_scoreMin_o2"><text>"Credit score below 600"</text></outputEntry>
+        <outputEntry id="Rule_uw_scoreMin_o3"><text>ltvRatio &gt; 80</text></outputEntry>
+      </rule>
+      <rule id="Rule_uw_creditIncomplete">
+        <description>No reliable bureau score — underwriter must assess</description>
+        <inputEntry id="Rule_uw_creditIncomplete_1"><text>-</text></inputEntry>
+        <inputEntry id="Rule_uw_creditIncomplete_2"><text>-</text></inputEntry>
+        <inputEntry id="Rule_uw_creditIncomplete_3"><text>-</text></inputEntry>
+        <inputEntry id="Rule_uw_creditIncomplete_4"><text>-</text></inputEntry>
+        <inputEntry id="Rule_uw_creditIncomplete_5"><text>not("COMPLETED")</text></inputEntry>
+        <outputEntry id="Rule_uw_creditIncomplete_o1"><text>"MANUAL_REVIEW"</text></outputEntry>
+        <outputEntry id="Rule_uw_creditIncomplete_o2"><text>"Credit bureau result incomplete"</text></outputEntry>
+        <outputEntry id="Rule_uw_creditIncomplete_o3"><text>ltvRatio &gt; 80</text></outputEntry>
+      </rule>
+      <rule id="Rule_uw_autoConventional">
+        <description>Conventional mortgage within GDS 39 / TDS 44, LTV ≤ 80, score ≥ 680</description>
+        <inputEntry id="Rule_uw_autoConventional_1"><text>&lt;= 39</text></inputEntry>
+        <inputEntry id="Rule_uw_autoConventional_2"><text>&lt;= 44</text></inputEntry>
+        <inputEntry id="Rule_uw_autoConventional_3"><text>&lt;= 80</text></inputEntry>
+        <inputEntry id="Rule_uw_autoConventional_4"><text>&gt;= 680</text></inputEntry>
+        <inputEntry id="Rule_uw_autoConventional_5"><text>"COMPLETED"</text></inputEntry>
+        <outputEntry id="Rule_uw_autoConventional_o1"><text>"AUTO_APPROVE"</text></outputEntry>
+        <outputEntry id="Rule_uw_autoConventional_o2"><text>"Within GDS/TDS limits, conventional LTV, strong credit"</text></outputEntry>
+        <outputEntry id="Rule_uw_autoConventional_o3"><text>false</text></outputEntry>
+      </rule>
+      <rule id="Rule_uw_autoInsured">
+        <description>High-ratio (80–95%) with strong credit — auto-approve subject to default insurance</description>
+        <inputEntry id="Rule_uw_autoInsured_1"><text>&lt;= 39</text></inputEntry>
+        <inputEntry id="Rule_uw_autoInsured_2"><text>&lt;= 44</text></inputEntry>
+        <inputEntry id="Rule_uw_autoInsured_3"><text>(80..95]</text></inputEntry>
+        <inputEntry id="Rule_uw_autoInsured_4"><text>&gt;= 720</text></inputEntry>
+        <inputEntry id="Rule_uw_autoInsured_5"><text>"COMPLETED"</text></inputEntry>
+        <outputEntry id="Rule_uw_autoInsured_o1"><text>"AUTO_APPROVE"</text></outputEntry>
+        <outputEntry id="Rule_uw_autoInsured_o2"><text>"High-ratio insured mortgage, strong credit"</text></outputEntry>
+        <outputEntry id="Rule_uw_autoInsured_o3"><text>true</text></outputEntry>
+      </rule>
+      <rule id="Rule_uw_manualFallback">
+        <inputEntry id="Rule_uw_manualFallback_1"><text>-</text></inputEntry>
+        <inputEntry id="Rule_uw_manualFallback_2"><text>-</text></inputEntry>
+        <inputEntry id="Rule_uw_manualFallback_3"><text>-</text></inputEntry>
+        <inputEntry id="Rule_uw_manualFallback_4"><text>-</text></inputEntry>
+        <inputEntry id="Rule_uw_manualFallback_5"><text>-</text></inputEntry>
+        <outputEntry id="Rule_uw_manualFallback_o1"><text>"MANUAL_REVIEW"</text></outputEntry>
+        <outputEntry id="Rule_uw_manualFallback_o2"><text>"Ratios, LTV or credit score outside auto-approval thresholds"</text></outputEntry>
+        <outputEntry id="Rule_uw_manualFallback_o3"><text>ltvRatio &gt; 80</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+  <inputData id="Input_uw_gds" name="gdsRatio" />
+  <inputData id="Input_uw_tds" name="tdsRatio" />
+  <inputData id="Input_uw_ltv" name="ltvRatio" />
+  <inputData id="Input_uw_score" name="creditScore" />
+  <inputData id="Input_uw_creditOutcome" name="creditCheckOutcome" />
+  <dmndi:DMNDI>
+    <dmndi:DMNDiagram id="DMNDiagram_debt_service_underwriting">
+      <dmndi:DMNShape id="DMNShape_uw" dmnElementRef="debt_service_underwriting">
+        <dc:Bounds height="80" width="180" x="400" y="80" />
+      </dmndi:DMNShape>
+      <dmndi:DMNShape id="DMNShape_uw_gds" dmnElementRef="Input_uw_gds"><dc:Bounds height="45" width="125" x="60" y="260" /></dmndi:DMNShape>
+      <dmndi:DMNShape id="DMNShape_uw_tds" dmnElementRef="Input_uw_tds"><dc:Bounds height="45" width="125" x="230" y="260" /></dmndi:DMNShape>
+      <dmndi:DMNShape id="DMNShape_uw_ltv" dmnElementRef="Input_uw_ltv"><dc:Bounds height="45" width="125" x="400" y="260" /></dmndi:DMNShape>
+      <dmndi:DMNShape id="DMNShape_uw_score" dmnElementRef="Input_uw_score"><dc:Bounds height="45" width="125" x="570" y="260" /></dmndi:DMNShape>
+      <dmndi:DMNShape id="DMNShape_uw_creditOutcome" dmnElementRef="Input_uw_creditOutcome"><dc:Bounds height="45" width="125" x="740" y="260" /></dmndi:DMNShape>
+      <dmndi:DMNEdge id="DMNEdge_uw_1" dmnElementRef="InfoReq_uw_gds"><di:waypoint x="123" y="260" /><di:waypoint x="430" y="160" /></dmndi:DMNEdge>
+      <dmndi:DMNEdge id="DMNEdge_uw_2" dmnElementRef="InfoReq_uw_tds"><di:waypoint x="293" y="260" /><di:waypoint x="460" y="160" /></dmndi:DMNEdge>
+      <dmndi:DMNEdge id="DMNEdge_uw_3" dmnElementRef="InfoReq_uw_ltv"><di:waypoint x="463" y="260" /><di:waypoint x="490" y="160" /></dmndi:DMNEdge>
+      <dmndi:DMNEdge id="DMNEdge_uw_4" dmnElementRef="InfoReq_uw_score"><di:waypoint x="633" y="260" /><di:waypoint x="520" y="160" /></dmndi:DMNEdge>
+      <dmndi:DMNEdge id="DMNEdge_uw_5" dmnElementRef="InfoReq_uw_creditOutcome"><di:waypoint x="803" y="260" /><di:waypoint x="550" y="160" /></dmndi:DMNEdge>
+    </dmndi:DMNDiagram>
+  </dmndi:DMNDI>
+</definitions>

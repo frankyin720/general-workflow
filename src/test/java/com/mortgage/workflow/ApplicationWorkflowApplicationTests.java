@@ -7,7 +7,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 @SpringBootTest
-class MortgageWorkflowApplicationTests {
+class ApplicationWorkflowApplicationTests {
 
 	@MockitoBean
 	private CamundaClient camundaClient;

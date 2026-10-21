@@ -1,53 +1,50 @@
 {
   "components": [
     {
-      "text": "Review application details and record the underwriting outcome.",
-      "label": "Instructions",
+      "text": "## Manual underwriting review\nReview GDS/TDS, LTV, credit and documents, then record the decision. Add any conditions that must be satisfied before funding.",
       "type": "text",
-      "id": "Field_instructions",
-      "layout": {
-        "row": "Row_instructions"
-      }
+      "id": "Field_uw_instructions",
+      "layout": { "row": "Row_uw_1" }
+    },
+    {
+      "label": "DMN route reason",
+      "type": "textfield",
+      "id": "Field_uw_reason",
+      "key": "underwriting.reason",
+      "readonly": true,
+      "layout": { "row": "Row_uw_2" }
     },
     {
       "label": "Underwriting decision",
       "type": "radio",
-      "id": "Field_underwritingDecision",
+      "id": "Field_uw_decision",
       "key": "underwritingDecision",
       "values": [
-        {
-          "label": "Approve",
-          "value": "APPROVED"
-        },
-        {
-          "label": "Reject",
-          "value": "REJECTED"
-        }
+        { "label": "Approve", "value": "APPROVED" },
+        { "label": "Decline", "value": "DECLINED" }
       ],
-      "validate": {
-        "required": true
-      },
-      "layout": {
-        "row": "Row_decision"
-      }
+      "validate": { "required": true },
+      "layout": { "row": "Row_uw_3" }
     },
     {
-      "label": "Rejection reason",
+      "label": "Approval conditions (one per line, must be cleared before funding)",
       "type": "textarea",
-      "id": "Field_rejectionReason",
-      "key": "rejectionReason",
-      "layout": {
-        "row": "Row_reason"
-      }
+      "id": "Field_uw_conditions",
+      "key": "approvalConditionsText",
+      "layout": { "row": "Row_uw_4" }
+    },
+    {
+      "label": "Decline reason / notes",
+      "type": "textarea",
+      "id": "Field_uw_declineReason",
+      "key": "declineReason",
+      "layout": { "row": "Row_uw_5" }
     }
   ],
   "type": "default",
   "id": "manual_underwriting_review_form",
   "executionPlatform": "Camunda Cloud",
   "executionPlatformVersion": "8.10.0",
-  "exporter": {
-    "name": "Camunda Modeler",
-    "version": "5.52.0"
-  },
+  "exporter": { "name": "Camunda Modeler", "version": "5.52.0" },
   "schemaVersion": 18
 }

@@ -1,0 +1,2188 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_mortgage_workflow" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Camunda Modeler" exporterVersion="5.52.0" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.10.0">
+  <bpmn:process id="mortgage_workflow" name="Mortgage Workflow" isExecutable="true">
+    <bpmn:documentation>Bank mortgage origination lifecycle in 5 phases:
+1. Application initiation and pre-screening (credit bureau + AML/KYC in parallel, eligibility DMN, compliance exception review)
+2. Documentation and property appraisal (eDocs via ECM with reminders/expiry, appraisal with follow-up)
+3. Debt service and risk underwriting (GDS/TDS DMN, manual underwriting with SLA escalation and senior review)
+4. Commitment letter and legal instruction (eSign with reminders/expiry, solicitor instructions)
+5. Funding and registration (closing confirmation, funding readiness DMN, disbursement with manual intervention)
+Business key / correlation key: applicationId.
+
+Decline and cancel use error end events on the main diagram; interrupting event sub-processes EventSubProcess_decline and EventSubProcess_cancel handle the shared work (Zeebe does not support BPMN link events).</bpmn:documentation>
+    <bpmn:startEvent id="StartEvent_applicationSubmitted" name="Mortgage application submitted">
+      <bpmn:outgoing>Flow_start_createFile</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="Task_createMortgageFile" name="Create mortgage file &#38; validate input">
+      <bpmn:documentation>Creates the mortgage file in core banking, derives required document checklist, validates mandatory input. Throws VALIDATION_FAILED for unrecoverable input errors.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="createMortgageFileAndValidateInput" retries="3" />
+        <zeebe:taskHeaders>
+          <zeebe:header key="integration" value="core-banking" />
+          <zeebe:header key="targetStatus" value="SUBMITTED" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_start_createFile</bpmn:incoming>
+      <bpmn:outgoing>Flow_createFile_preScreenSplit</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:boundaryEvent id="Boundary_validationFailed" name="Validation failed" attachedToRef="Task_createMortgageFile">
+      <bpmn:outgoing>Flow_validationFailed_notify</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ErrorDef_validationFailed" errorRef="Error_validationFailed" />
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="Task_notifyAdvisorInvalidApplication" name="Return application to advisor">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="notifyAdvisorInvalidApplication" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_validationFailed_notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_notifyInvalid_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_applicationInvalid" name="Application returned (invalid input)">
+      <bpmn:incoming>Flow_notifyInvalid_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:parallelGateway id="Gateway_preScreenSplit" name="Credit &#38; AML in parallel">
+      <bpmn:incoming>Flow_createFile_preScreenSplit</bpmn:incoming>
+      <bpmn:outgoing>Flow_preScreenSplit_credit</bpmn:outgoing>
+      <bpmn:outgoing>Flow_preScreenSplit_aml</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:serviceTask id="Task_creditBureauCheck" name="Credit bureau check (Equifax / TransUnion)">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="creditBureauCheck" retries="3" />
+        <zeebe:taskHeaders>
+          <zeebe:header key="integration" value="credit-bureau" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_preScreenSplit_credit</bpmn:incoming>
+      <bpmn:outgoing>Flow_credit_merge</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:boundaryEvent id="Boundary_creditTimeout" name="Bureau timeout 15m" attachedToRef="Task_creditBureauCheck">
+      <bpmn:outgoing>Flow_creditTimeout_record</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerDef_creditTimeout">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT15M</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:boundaryEvent id="Boundary_creditHardDecline" name="Hard decline" attachedToRef="Task_creditBureauCheck">
+      <bpmn:outgoing>Flow_creditDecline_record</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ErrorDef_creditHardDecline" errorRef="Error_creditHardDecline" />
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="Task_recordCreditTimeout" name="Record bureau timeout">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="recordScreeningException" />
+        <zeebe:taskHeaders>
+          <zeebe:header key="screening" value="CREDIT" />
+          <zeebe:header key="outcome" value="TIMEOUT" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_creditTimeout_record</bpmn:incoming>
+      <bpmn:outgoing>Flow_creditTimeoutRecorded_merge</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="Task_recordCreditHardDecline" name="Record bureau hard decline">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="recordScreeningException" />
+        <zeebe:taskHeaders>
+          <zeebe:header key="screening" value="CREDIT" />
+          <zeebe:header key="outcome" value="HARD_DECLINE" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_creditDecline_record</bpmn:incoming>
+      <bpmn:outgoing>Flow_creditDeclineRecorded_merge</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_creditMerge" name="Credit result">
+      <bpmn:incoming>Flow_credit_merge</bpmn:incoming>
+      <bpmn:incoming>Flow_creditTimeoutRecorded_merge</bpmn:incoming>
+      <bpmn:incoming>Flow_creditDeclineRecorded_merge</bpmn:incoming>
+      <bpmn:outgoing>Flow_creditMerge_join</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="Task_amlKycScreening" name="AML / KYC screening">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="amlKycScreening" retries="3" />
+        <zeebe:taskHeaders>
+          <zeebe:header key="integration" value="aml-kyc" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_preScreenSplit_aml</bpmn:incoming>
+      <bpmn:outgoing>Flow_aml_merge</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:boundaryEvent id="Boundary_amlTimeout" name="AML timeout 15m" attachedToRef="Task_amlKycScreening">
+      <bpmn:outgoing>Flow_amlTimeout_record</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerDef_amlTimeout">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT15M</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="Task_recordAmlTimeout" name="Record AML timeout">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="recordScreeningException" />
+        <zeebe:taskHeaders>
+          <zeebe:header key="screening" value="AML" />
+          <zeebe:header key="outcome" value="TIMEOUT" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_amlTimeout_record</bpmn:incoming>
+      <bpmn:outgoing>Flow_amlTimeoutRecorded_merge</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_amlMerge" name="AML result">
+      <bpmn:incoming>Flow_aml_merge</bpmn:incoming>
+      <bpmn:incoming>Flow_amlTimeoutRecorded_merge</bpmn:incoming>
+      <bpmn:outgoing>Flow_amlMerge_join</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:parallelGateway id="Gateway_preScreenJoin" name="Pre-screening complete">
+      <bpmn:incoming>Flow_creditMerge_join</bpmn:incoming>
+      <bpmn:incoming>Flow_amlMerge_join</bpmn:incoming>
+      <bpmn:outgoing>Flow_preScreenJoin_eligibility</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:businessRuleTask id="Task_preScreeningEligibility" name="Pre-screening eligibility (DMN)">
+      <bpmn:extensionElements>
+        <zeebe:calledDecision decisionId="pre_screening_eligibility" resultVariable="preScreening" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_preScreenJoin_eligibility</bpmn:incoming>
+      <bpmn:outgoing>Flow_eligibility_route</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+    <bpmn:exclusiveGateway id="Gateway_preScreeningRoute" name="Eligible?" default="Flow_eligibility_review">
+      <bpmn:incoming>Flow_eligibility_route</bpmn:incoming>
+      <bpmn:outgoing>Flow_eligibility_proceed</bpmn:outgoing>
+      <bpmn:outgoing>Flow_eligibility_decline</bpmn:outgoing>
+      <bpmn:outgoing>Flow_eligibility_review</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_eligibility_proceed" name="Proceed" sourceRef="Gateway_preScreeningRoute" targetRef="Gateway_phase2Entry">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=preScreening.eligibility = "PROCEED"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_eligibility_decline" name="Decline" sourceRef="Gateway_preScreeningRoute" targetRef="End_declineError_preScreen">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=preScreening.eligibility = "DECLINE"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_eligibility_review" name="Manual review" sourceRef="Gateway_preScreeningRoute" targetRef="Task_complianceReview" />
+    <bpmn:userTask id="Task_complianceReview" name="Pre-screening exception review (Compliance)">
+      <bpmn:documentation>Compliance / credit exception review. Completes with complianceDecision = CLEARED | DECLINED and optional complianceNotes.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+        <zeebe:formDefinition formId="compliance_review_form" />
+        <zeebe:assignmentDefinition candidateGroups="Compliance" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_eligibility_review</bpmn:incoming>
+      <bpmn:outgoing>Flow_compliance_outcome</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:boundaryEvent id="Boundary_complianceSla" name="SLA 24h" cancelActivity="false" attachedToRef="Task_complianceReview">
+      <bpmn:outgoing>Flow_complianceSla_escalate</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerDef_complianceSla">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT24H</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="Task_escalateComplianceReview" name="Escalate to compliance lead">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="escalateReview" />
+        <zeebe:taskHeaders>
+          <zeebe:header key="reviewType" value="COMPLIANCE" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_complianceSla_escalate</bpmn:incoming>
+      <bpmn:outgoing>Flow_complianceEscalated_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_complianceEscalated" name="Compliance lead notified">
+      <bpmn:incoming>Flow_complianceEscalated_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:exclusiveGateway id="Gateway_complianceOutcome" name="Compliance outcome" default="Flow_compliance_declined">
+      <bpmn:incoming>Flow_compliance_outcome</bpmn:incoming>
+      <bpmn:outgoing>Flow_compliance_cleared</bpmn:outgoing>
+      <bpmn:outgoing>Flow_compliance_declined</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_compliance_cleared" name="Cleared" sourceRef="Gateway_complianceOutcome" targetRef="Gateway_phase2Entry">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=complianceDecision = "CLEARED"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_compliance_declined" name="Declined" sourceRef="Gateway_complianceOutcome" targetRef="End_declineError_compliance" />
+    <bpmn:exclusiveGateway id="Gateway_phase2Entry" name="Enter phase 2 (after pre-screening)">
+      <bpmn:incoming>Flow_eligibility_proceed</bpmn:incoming>
+      <bpmn:incoming>Flow_compliance_cleared</bpmn:incoming>
+      <bpmn:outgoing>Flow_phase2Entry_split</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_phase2Entry_split" sourceRef="Gateway_phase2Entry" targetRef="Gateway_phase2Split" />
+    <bpmn:parallelGateway id="Gateway_phase2Split" name="Docs &#38; appraisal in parallel">
+      <bpmn:incoming>Flow_phase2Entry_split</bpmn:incoming>
+      <bpmn:outgoing>Flow_phase2Split_docs</bpmn:outgoing>
+      <bpmn:outgoing>Flow_phase2Split_appraisal</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:subProcess id="SubProcess_financialDocuments" name="Branch A — income &#38; financial eDocs (NOA, T4, employment letter)">
+      <bpmn:incoming>Flow_phase2Split_docs</bpmn:incoming>
+      <bpmn:incoming>Flow_docExpiry_extend</bpmn:incoming>
+      <bpmn:outgoing>Flow_docs_join</bpmn:outgoing>
+      <bpmn:startEvent id="Start_docs">
+        <bpmn:outgoing>Flow_docs_start_wait</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:intermediateCatchEvent id="Event_waitEdoc" name="Wait for eDoc upload">
+        <bpmn:incoming>Flow_docs_start_wait</bpmn:incoming>
+        <bpmn:incoming>Flow_docIssue_wait</bpmn:incoming>
+        <bpmn:incoming>Flow_moreDocs_wait</bpmn:incoming>
+        <bpmn:outgoing>Flow_wait_validate</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="MsgDef_edocUploaded" messageRef="Message_eDocUploaded" />
+      </bpmn:intermediateCatchEvent>
+      <bpmn:serviceTask id="Task_validateDocumentViaEcm" name="OCR &#38; compliance check via ECM (Alfresco / OnBase)">
+        <bpmn:extensionElements>
+          <zeebe:taskDefinition type="validateFinancialDocumentsViaEcm" retries="3" />
+          <zeebe:taskHeaders>
+            <zeebe:header key="integration" value="ecm" />
+          </zeebe:taskHeaders>
+        </bpmn:extensionElements>
+        <bpmn:incoming>Flow_wait_validate</bpmn:incoming>
+        <bpmn:outgoing>Flow_validate_gateway</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:boundaryEvent id="Boundary_ecmUnavailable" name="ECM unavailable" attachedToRef="Task_validateDocumentViaEcm">
+        <bpmn:outgoing>Flow_ecmError_manual</bpmn:outgoing>
+        <bpmn:errorEventDefinition id="ErrorDef_ecmUnavailable" errorRef="Error_ecmServiceUnavailable" />
+      </bpmn:boundaryEvent>
+      <bpmn:boundaryEvent id="Boundary_ecmTimeout" name="ECM timeout 10m" attachedToRef="Task_validateDocumentViaEcm">
+        <bpmn:outgoing>Flow_ecmTimeout_manual</bpmn:outgoing>
+        <bpmn:timerEventDefinition id="TimerDef_ecmTimeout">
+          <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT10M</bpmn:timeDuration>
+        </bpmn:timerEventDefinition>
+      </bpmn:boundaryEvent>
+      <bpmn:userTask id="Task_manualDocumentReview" name="Manual document review (ECM fallback)">
+        <bpmn:documentation>Operations reviews the uploaded document manually. Completes with documentValid = true | false.</bpmn:documentation>
+        <bpmn:extensionElements>
+          <zeebe:userTask />
+          <zeebe:formDefinition formId="manual_document_review_form" />
+          <zeebe:assignmentDefinition candidateGroups="Operations" />
+        </bpmn:extensionElements>
+        <bpmn:incoming>Flow_ecmError_manual</bpmn:incoming>
+        <bpmn:incoming>Flow_ecmTimeout_manual</bpmn:incoming>
+        <bpmn:outgoing>Flow_manualDoc_gateway</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="Gateway_documentValid" name="Document compliant?" default="Flow_docInvalid_notify">
+        <bpmn:incoming>Flow_validate_gateway</bpmn:incoming>
+        <bpmn:incoming>Flow_manualDoc_gateway</bpmn:incoming>
+        <bpmn:outgoing>Flow_docValid_checklist</bpmn:outgoing>
+        <bpmn:outgoing>Flow_docInvalid_notify</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:sequenceFlow id="Flow_docValid_checklist" name="Valid" sourceRef="Gateway_documentValid" targetRef="Task_updateDocumentChecklist">
+        <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=documentValid = true</bpmn:conditionExpression>
+      </bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_docInvalid_notify" name="Invalid" sourceRef="Gateway_documentValid" targetRef="Task_notifyAdvisorDocumentIssue" />
+      <bpmn:serviceTask id="Task_updateDocumentChecklist" name="Update document checklist">
+        <bpmn:extensionElements>
+          <zeebe:taskDefinition type="updateDocumentChecklist" />
+        </bpmn:extensionElements>
+        <bpmn:incoming>Flow_docValid_checklist</bpmn:incoming>
+        <bpmn:outgoing>Flow_checklist_allDocs</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="Gateway_allDocsReceived" name="All required docs verified?" default="Flow_moreDocs_wait">
+        <bpmn:incoming>Flow_checklist_allDocs</bpmn:incoming>
+        <bpmn:outgoing>Flow_allDocs_end</bpmn:outgoing>
+        <bpmn:outgoing>Flow_moreDocs_wait</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:sequenceFlow id="Flow_allDocs_end" name="Yes" sourceRef="Gateway_allDocsReceived" targetRef="End_docs">
+        <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=financialDocumentsVerified = true</bpmn:conditionExpression>
+      </bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="Flow_moreDocs_wait" name="More needed" sourceRef="Gateway_allDocsReceived" targetRef="Event_waitEdoc" />
+      <bpmn:serviceTask id="Task_notifyAdvisorDocumentIssue" name="Notify advisor — document rejected">
+        <bpmn:extensionElements>
+          <zeebe:taskDefinition type="notifyAdvisorDocumentIssue" />
+        </bpmn:extensionElements>
+        <bpmn:incoming>Flow_docInvalid_notify</bpmn:incoming>
+        <bpmn:outgoing>Flow_docIssue_wait</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="End_docs" name="Documents verified">
+        <bpmn:incoming>Flow_allDocs_end</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_docs_start_wait" sourceRef="Start_docs" targetRef="Event_waitEdoc" />
+      <bpmn:sequenceFlow id="Flow_wait_validate" sourceRef="Event_waitEdoc" targetRef="Task_validateDocumentViaEcm" />
+      <bpmn:sequenceFlow id="Flow_validate_gateway" sourceRef="Task_validateDocumentViaEcm" targetRef="Gateway_documentValid" />
+      <bpmn:sequenceFlow id="Flow_ecmError_manual" sourceRef="Boundary_ecmUnavailable" targetRef="Task_manualDocumentReview" />
+      <bpmn:sequenceFlow id="Flow_ecmTimeout_manual" sourceRef="Boundary_ecmTimeout" targetRef="Task_manualDocumentReview" />
+      <bpmn:sequenceFlow id="Flow_manualDoc_gateway" sourceRef="Task_manualDocumentReview" targetRef="Gateway_documentValid" />
+      <bpmn:sequenceFlow id="Flow_checklist_allDocs" sourceRef="Task_updateDocumentChecklist" targetRef="Gateway_allDocsReceived" />
+      <bpmn:sequenceFlow id="Flow_docIssue_wait" sourceRef="Task_notifyAdvisorDocumentIssue" targetRef="Event_waitEdoc" />
+      <bpmn:subProcess id="EventSubProcess_docReminder" name="Document reminders" triggeredByEvent="true">
+        <bpmn:startEvent id="Start_docReminder" name="Every 7 days (x3)" isInterrupting="false">
+          <bpmn:outgoing>Flow_docReminder_send</bpmn:outgoing>
+          <bpmn:timerEventDefinition id="TimerDef_docReminder">
+            <bpmn:timeCycle xsi:type="bpmn:tFormalExpression">R3/P7D</bpmn:timeCycle>
+          </bpmn:timerEventDefinition>
+        </bpmn:startEvent>
+        <bpmn:serviceTask id="Task_sendDocumentReminder" name="Send document reminder to advisor / client">
+          <bpmn:extensionElements>
+            <zeebe:taskDefinition type="sendDocumentReminder" />
+          </bpmn:extensionElements>
+          <bpmn:incoming>Flow_docReminder_send</bpmn:incoming>
+          <bpmn:outgoing>Flow_docReminder_end</bpmn:outgoing>
+        </bpmn:serviceTask>
+        <bpmn:endEvent id="End_docReminder">
+          <bpmn:incoming>Flow_docReminder_end</bpmn:incoming>
+        </bpmn:endEvent>
+        <bpmn:sequenceFlow id="Flow_docReminder_send" sourceRef="Start_docReminder" targetRef="Task_sendDocumentReminder" />
+        <bpmn:sequenceFlow id="Flow_docReminder_end" sourceRef="Task_sendDocumentReminder" targetRef="End_docReminder" />
+      </bpmn:subProcess>
+    </bpmn:subProcess>
+    <bpmn:boundaryEvent id="Boundary_docsExpired" name="Documents overdue 30d" attachedToRef="SubProcess_financialDocuments">
+      <bpmn:outgoing>Flow_docsExpired_decide</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerDef_docsExpired">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">P30D</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:userTask id="Task_decideDocumentExpiry" name="Advisor: extend or cancel (documents overdue)">
+      <bpmn:documentation>Completes with documentExpiryDecision = EXTEND | CANCEL.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+        <zeebe:formDefinition formId="document_expiry_form" />
+        <zeebe:assignmentDefinition candidateGroups="Advisor" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_docsExpired_decide</bpmn:incoming>
+      <bpmn:outgoing>Flow_docExpiry_gateway</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="Gateway_docExpiryDecision" name="Extend?" default="Flow_docExpiry_cancel">
+      <bpmn:incoming>Flow_docExpiry_gateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_docExpiry_extend</bpmn:outgoing>
+      <bpmn:outgoing>Flow_docExpiry_cancel</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_docExpiry_extend" name="Extend" sourceRef="Gateway_docExpiryDecision" targetRef="SubProcess_financialDocuments">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=documentExpiryDecision = "EXTEND"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_docExpiry_cancel" name="Cancel" sourceRef="Gateway_docExpiryDecision" targetRef="End_cancelError_docExpiry" />
+    <bpmn:serviceTask id="Task_requestPropertyAppraisal" name="Branch B — request property appraisal">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="requestPropertyAppraisal" retries="3" />
+        <zeebe:taskHeaders>
+          <zeebe:header key="integration" value="appraisal-vendor" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_phase2Split_appraisal</bpmn:incoming>
+      <bpmn:outgoing>Flow_appraisalRequested_wait</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:eventBasedGateway id="Gateway_awaitAppraisal" name="Await appraisal">
+      <bpmn:incoming>Flow_appraisalRequested_wait</bpmn:incoming>
+      <bpmn:incoming>Flow_appraisalFollowUp_wait</bpmn:incoming>
+      <bpmn:outgoing>Flow_await_appraisalCompleted</bpmn:outgoing>
+      <bpmn:outgoing>Flow_await_appraisalOverdue</bpmn:outgoing>
+    </bpmn:eventBasedGateway>
+    <bpmn:intermediateCatchEvent id="Event_appraisalCompleted" name="Appraisal report received">
+      <bpmn:incoming>Flow_await_appraisalCompleted</bpmn:incoming>
+      <bpmn:outgoing>Flow_appraisalCompleted_ltv</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MsgDef_appraisalCompleted" messageRef="Message_appraisalCompleted" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:intermediateCatchEvent id="Event_appraisalOverdue" name="Overdue 10d">
+      <bpmn:incoming>Flow_await_appraisalOverdue</bpmn:incoming>
+      <bpmn:outgoing>Flow_appraisalOverdue_followUp</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerDef_appraisalOverdue">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">P10D</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:userTask id="Task_followUpAppraisal" name="Follow up with appraiser">
+      <bpmn:documentation>Completes with appraisalFollowUpDecision = WAIT | CANCEL.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+        <zeebe:formDefinition formId="appraisal_follow_up_form" />
+        <zeebe:assignmentDefinition candidateGroups="Operations" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_appraisalOverdue_followUp</bpmn:incoming>
+      <bpmn:outgoing>Flow_followUp_gateway</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="Gateway_appraisalFollowUp" name="Keep waiting?" default="Flow_appraisalFollowUp_wait">
+      <bpmn:incoming>Flow_followUp_gateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_appraisalFollowUp_wait</bpmn:outgoing>
+      <bpmn:outgoing>Flow_appraisalFollowUp_cancel</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_appraisalFollowUp_wait" name="Wait" sourceRef="Gateway_appraisalFollowUp" targetRef="Gateway_awaitAppraisal" />
+    <bpmn:sequenceFlow id="Flow_appraisalFollowUp_cancel" name="Cancel" sourceRef="Gateway_appraisalFollowUp" targetRef="End_cancelError_appraisal">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=appraisalFollowUpDecision = "CANCEL"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:serviceTask id="Task_calculateLoanToValue" name="Calculate loan-to-value (LTV)">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="calculateLoanToValue" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_appraisalCompleted_ltv</bpmn:incoming>
+      <bpmn:outgoing>Flow_ltv_join</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:parallelGateway id="Gateway_phase2Join" name="Documentation &#38; appraisal complete">
+      <bpmn:incoming>Flow_docs_join</bpmn:incoming>
+      <bpmn:incoming>Flow_ltv_join</bpmn:incoming>
+      <bpmn:outgoing>Flow_phase2Join_ratios</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:serviceTask id="Task_calculateDebtServiceRatios" name="Calculate GDS / TDS ratios">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="calculateDebtServiceRatios" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_phase2Join_ratios</bpmn:incoming>
+      <bpmn:outgoing>Flow_ratios_dmn</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:businessRuleTask id="Task_underwritingDecision" name="Debt service &#38; risk underwriting (DMN)">
+      <bpmn:extensionElements>
+        <zeebe:calledDecision decisionId="debt_service_underwriting" resultVariable="underwriting" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_ratios_dmn</bpmn:incoming>
+      <bpmn:outgoing>Flow_dmn_route</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+    <bpmn:exclusiveGateway id="Gateway_underwritingRoute" name="Underwriting route" default="Flow_route_manual">
+      <bpmn:incoming>Flow_dmn_route</bpmn:incoming>
+      <bpmn:outgoing>Flow_route_auto</bpmn:outgoing>
+      <bpmn:outgoing>Flow_route_decline</bpmn:outgoing>
+      <bpmn:outgoing>Flow_route_manual</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_route_auto" name="Auto-approved" sourceRef="Gateway_underwritingRoute" targetRef="Task_recordAutoApproval">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=underwriting.route = "AUTO_APPROVE"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_route_decline" name="Decline" sourceRef="Gateway_underwritingRoute" targetRef="End_declineError_route">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=underwriting.route = "DECLINE"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_route_manual" name="Manual underwriting" sourceRef="Gateway_underwritingRoute" targetRef="Task_manualUnderwritingReview" />
+    <bpmn:serviceTask id="Task_recordAutoApproval" name="Record auto-approval">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="updateApplicationStatus" />
+        <zeebe:taskHeaders>
+          <zeebe:header key="targetStatus" value="APPROVED" />
+          <zeebe:header key="approvalPath" value="AUTO" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_route_auto</bpmn:incoming>
+      <bpmn:outgoing>Flow_autoApproved_merge</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="Task_manualUnderwritingReview" name="Manual underwriting review">
+      <bpmn:documentation>Completes with underwritingDecision = APPROVED | DECLINED, optional approvalConditions (list) and declineReason.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+        <zeebe:formDefinition formId="manual_underwriting_review_form" />
+        <zeebe:assignmentDefinition candidateGroups="Bank Underwriter" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_route_manual</bpmn:incoming>
+      <bpmn:outgoing>Flow_manualUw_outcome</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:boundaryEvent id="Boundary_underwritingSla" name="SLA 48h" cancelActivity="false" attachedToRef="Task_manualUnderwritingReview">
+      <bpmn:outgoing>Flow_uwSla_escalate</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerDef_underwritingSla">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT48H</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:boundaryEvent id="Boundary_underwritingOverdue" name="Overdue 5d" attachedToRef="Task_manualUnderwritingReview">
+      <bpmn:outgoing>Flow_uwOverdue_senior</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerDef_underwritingOverdue">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">P5D</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="Task_escalateUnderwriting" name="Escalate to underwriting manager">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="escalateReview" />
+        <zeebe:taskHeaders>
+          <zeebe:header key="reviewType" value="UNDERWRITING" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_uwSla_escalate</bpmn:incoming>
+      <bpmn:outgoing>Flow_uwEscalated_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_underwritingEscalated" name="Underwriting manager notified">
+      <bpmn:incoming>Flow_uwEscalated_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="Task_seniorUnderwriterReview" name="Senior underwriter review (reassigned)">
+      <bpmn:documentation>Same outcome variables as manual underwriting review.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+        <zeebe:formDefinition formId="manual_underwriting_review_form" />
+        <zeebe:assignmentDefinition candidateGroups="Senior Underwriter" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_uwOverdue_senior</bpmn:incoming>
+      <bpmn:outgoing>Flow_seniorUw_outcome</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="Gateway_underwritingOutcome" name="Underwriting outcome" default="Flow_uw_declined">
+      <bpmn:incoming>Flow_manualUw_outcome</bpmn:incoming>
+      <bpmn:incoming>Flow_seniorUw_outcome</bpmn:incoming>
+      <bpmn:outgoing>Flow_uw_approved</bpmn:outgoing>
+      <bpmn:outgoing>Flow_uw_declined</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_uw_approved" name="Approved" sourceRef="Gateway_underwritingOutcome" targetRef="Task_recordManualApproval">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=underwritingDecision = "APPROVED"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_uw_declined" name="Declined" sourceRef="Gateway_underwritingOutcome" targetRef="End_declineError_uwOutcome" />
+    <bpmn:serviceTask id="Task_recordManualApproval" name="Record manual approval">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="updateApplicationStatus" />
+        <zeebe:taskHeaders>
+          <zeebe:header key="targetStatus" value="APPROVED" />
+          <zeebe:header key="approvalPath" value="MANUAL" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_uw_approved</bpmn:incoming>
+      <bpmn:outgoing>Flow_manualApproved_merge</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_approvedMerge" name="Approved">
+      <bpmn:incoming>Flow_autoApproved_merge</bpmn:incoming>
+      <bpmn:incoming>Flow_manualApproved_merge</bpmn:incoming>
+      <bpmn:outgoing>Flow_approved_commitment</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="Task_generateCommitmentLetter" name="Generate mortgage commitment letter">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="generateMortgageCommitmentLetter" retries="3" />
+        <zeebe:taskHeaders>
+          <zeebe:header key="integration" value="document-generation" />
+          <zeebe:header key="targetStatus" value="COMMITMENT_ISSUED" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_approved_commitment</bpmn:incoming>
+      <bpmn:incoming>Flow_fixLetter_retry</bpmn:incoming>
+      <bpmn:incoming>Flow_commitmentExpiry_extend</bpmn:incoming>
+      <bpmn:outgoing>Flow_commitment_send</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:boundaryEvent id="Boundary_letterGenerationFailed" name="Generation failed" attachedToRef="Task_generateCommitmentLetter">
+      <bpmn:outgoing>Flow_letterFailed_fix</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ErrorDef_letterGenerationFailed" errorRef="Error_documentGenerationFailed" />
+    </bpmn:boundaryEvent>
+    <bpmn:userTask id="Task_fixCommitmentLetter" name="Resolve commitment letter issue">
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+        <zeebe:formDefinition formId="commitment_letter_issue_form" />
+        <zeebe:assignmentDefinition candidateGroups="Operations" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_letterFailed_fix</bpmn:incoming>
+      <bpmn:outgoing>Flow_fixLetter_retry</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_sendCommitmentForEsign" name="Send commitment letter for eSign">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="sendCommitmentLetterForEsign" retries="3" />
+        <zeebe:taskHeaders>
+          <zeebe:header key="integration" value="esign" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_commitment_send</bpmn:incoming>
+      <bpmn:outgoing>Flow_send_awaitSignature</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:subProcess id="SubProcess_awaitSignature" name="Await client eSign">
+      <bpmn:incoming>Flow_send_awaitSignature</bpmn:incoming>
+      <bpmn:outgoing>Flow_signed_solicitor</bpmn:outgoing>
+      <bpmn:startEvent id="Start_awaitSignature">
+        <bpmn:outgoing>Flow_sig_start_gateway</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:eventBasedGateway id="Gateway_awaitEsign">
+        <bpmn:incoming>Flow_sig_start_gateway</bpmn:incoming>
+        <bpmn:outgoing>Flow_sig_signed</bpmn:outgoing>
+        <bpmn:outgoing>Flow_sig_declined</bpmn:outgoing>
+        <bpmn:outgoing>Flow_sig_expired</bpmn:outgoing>
+      </bpmn:eventBasedGateway>
+      <bpmn:intermediateCatchEvent id="Event_esignCompleted" name="Client eSign completed">
+        <bpmn:incoming>Flow_sig_signed</bpmn:incoming>
+        <bpmn:outgoing>Flow_signed_end</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="MsgDef_esignCompleted" messageRef="Message_eSignCompleted" />
+      </bpmn:intermediateCatchEvent>
+      <bpmn:intermediateCatchEvent id="Event_clientDeclined" name="Client declined offer">
+        <bpmn:incoming>Flow_sig_declined</bpmn:incoming>
+        <bpmn:outgoing>Flow_declined_errorEnd</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="MsgDef_clientDeclined" messageRef="Message_clientDeclinedCommitment" />
+      </bpmn:intermediateCatchEvent>
+      <bpmn:intermediateCatchEvent id="Event_commitmentExpired" name="Commitment expires 14d">
+        <bpmn:incoming>Flow_sig_expired</bpmn:incoming>
+        <bpmn:outgoing>Flow_expired_errorEnd</bpmn:outgoing>
+        <bpmn:timerEventDefinition id="TimerDef_commitmentExpiry">
+          <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">P14D</bpmn:timeDuration>
+        </bpmn:timerEventDefinition>
+      </bpmn:intermediateCatchEvent>
+      <bpmn:endEvent id="End_signed" name="Signed">
+        <bpmn:incoming>Flow_signed_end</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:endEvent id="End_clientDeclinedError" name="Client declined">
+        <bpmn:incoming>Flow_declined_errorEnd</bpmn:incoming>
+        <bpmn:errorEventDefinition id="ErrorDef_clientDeclinedEnd" errorRef="Error_clientDeclined" />
+      </bpmn:endEvent>
+      <bpmn:endEvent id="End_commitmentExpiredError" name="Expired">
+        <bpmn:incoming>Flow_expired_errorEnd</bpmn:incoming>
+        <bpmn:errorEventDefinition id="ErrorDef_commitmentExpiredEnd" errorRef="Error_commitmentExpired" />
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_sig_start_gateway" sourceRef="Start_awaitSignature" targetRef="Gateway_awaitEsign" />
+      <bpmn:sequenceFlow id="Flow_sig_signed" sourceRef="Gateway_awaitEsign" targetRef="Event_esignCompleted" />
+      <bpmn:sequenceFlow id="Flow_sig_declined" sourceRef="Gateway_awaitEsign" targetRef="Event_clientDeclined" />
+      <bpmn:sequenceFlow id="Flow_sig_expired" sourceRef="Gateway_awaitEsign" targetRef="Event_commitmentExpired" />
+      <bpmn:sequenceFlow id="Flow_signed_end" sourceRef="Event_esignCompleted" targetRef="End_signed" />
+      <bpmn:sequenceFlow id="Flow_declined_errorEnd" sourceRef="Event_clientDeclined" targetRef="End_clientDeclinedError" />
+      <bpmn:sequenceFlow id="Flow_expired_errorEnd" sourceRef="Event_commitmentExpired" targetRef="End_commitmentExpiredError" />
+    </bpmn:subProcess>
+    <bpmn:boundaryEvent id="Boundary_esignReminder" name="Reminder every 3d" cancelActivity="false" attachedToRef="SubProcess_awaitSignature">
+      <bpmn:outgoing>Flow_esignReminder_send</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerDef_esignReminder">
+        <bpmn:timeCycle xsi:type="bpmn:tFormalExpression">R4/P3D</bpmn:timeCycle>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="Task_sendEsignReminder" name="Send eSign reminder">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="sendEsignReminder" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_esignReminder_send</bpmn:incoming>
+      <bpmn:outgoing>Flow_esignReminder_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_esignReminderSent" name="Reminder sent">
+      <bpmn:incoming>Flow_esignReminder_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:boundaryEvent id="Boundary_clientDeclined" name="Client declined" attachedToRef="SubProcess_awaitSignature">
+      <bpmn:outgoing>Flow_clientDeclined_record</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ErrorDef_clientDeclinedBoundary" errorRef="Error_clientDeclined" />
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="Task_recordClientDeclined" name="Record client declined offer">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="recordClientDeclined" />
+        <zeebe:taskHeaders>
+          <zeebe:header key="targetStatus" value="CLIENT_DECLINED" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_clientDeclined_record</bpmn:incoming>
+      <bpmn:outgoing>Flow_clientDeclined_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_clientDeclined" name="Client declined commitment">
+      <bpmn:incoming>Flow_clientDeclined_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:boundaryEvent id="Boundary_commitmentExpired" name="Commitment expired" attachedToRef="SubProcess_awaitSignature">
+      <bpmn:outgoing>Flow_commitmentExpired_decide</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ErrorDef_commitmentExpiredBoundary" errorRef="Error_commitmentExpired" />
+    </bpmn:boundaryEvent>
+    <bpmn:userTask id="Task_decideCommitmentExpiry" name="Advisor: extend or withdraw expired commitment">
+      <bpmn:documentation>Completes with commitmentExpiryDecision = EXTEND | WITHDRAW.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+        <zeebe:formDefinition formId="commitment_expiry_form" />
+        <zeebe:assignmentDefinition candidateGroups="Advisor" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_commitmentExpired_decide</bpmn:incoming>
+      <bpmn:outgoing>Flow_commitmentExpiry_gateway</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="Gateway_commitmentExpiryDecision" name="Extend?" default="Flow_commitmentExpiry_withdraw">
+      <bpmn:incoming>Flow_commitmentExpiry_gateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_commitmentExpiry_extend</bpmn:outgoing>
+      <bpmn:outgoing>Flow_commitmentExpiry_withdraw</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_commitmentExpiry_extend" name="Extend (re-issue)" sourceRef="Gateway_commitmentExpiryDecision" targetRef="Task_generateCommitmentLetter">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=commitmentExpiryDecision = "EXTEND"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_commitmentExpiry_withdraw" name="Withdraw" sourceRef="Gateway_commitmentExpiryDecision" targetRef="End_cancelError_commitment" />
+    <bpmn:serviceTask id="Task_sendSolicitorInstructions" name="Send instructions to solicitor / notary">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="sendSolicitorInstructions" retries="3" />
+        <zeebe:taskHeaders>
+          <zeebe:header key="integration" value="legal" />
+          <zeebe:header key="targetStatus" value="INSTRUCTED" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_signed_solicitor</bpmn:incoming>
+      <bpmn:outgoing>Flow_solicitor_awaitClosing</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:subProcess id="SubProcess_awaitClosing" name="Await closing day confirmation">
+      <bpmn:incoming>Flow_solicitor_awaitClosing</bpmn:incoming>
+      <bpmn:outgoing>Flow_closingConfirmed_checklist</bpmn:outgoing>
+      <bpmn:startEvent id="Start_awaitClosing">
+        <bpmn:outgoing>Flow_closing_start_gateway</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:eventBasedGateway id="Gateway_awaitClosing">
+        <bpmn:incoming>Flow_closing_start_gateway</bpmn:incoming>
+        <bpmn:incoming>Flow_closingDelay_wait</bpmn:incoming>
+        <bpmn:outgoing>Flow_closing_confirmed</bpmn:outgoing>
+        <bpmn:outgoing>Flow_closing_overdue</bpmn:outgoing>
+      </bpmn:eventBasedGateway>
+      <bpmn:intermediateCatchEvent id="Event_closingConfirmed" name="Closing day confirmed by solicitor">
+        <bpmn:incoming>Flow_closing_confirmed</bpmn:incoming>
+        <bpmn:outgoing>Flow_closingConfirmed_end</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="MsgDef_closingConfirmed" messageRef="Message_closingDayConfirmed" />
+      </bpmn:intermediateCatchEvent>
+      <bpmn:intermediateCatchEvent id="Event_closingOverdue" name="No confirmation 45d">
+        <bpmn:incoming>Flow_closing_overdue</bpmn:incoming>
+        <bpmn:outgoing>Flow_closingOverdue_resolve</bpmn:outgoing>
+        <bpmn:timerEventDefinition id="TimerDef_closingOverdue">
+          <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">P45D</bpmn:timeDuration>
+        </bpmn:timerEventDefinition>
+      </bpmn:intermediateCatchEvent>
+      <bpmn:userTask id="Task_resolveClosingDelay" name="Resolve closing delay with solicitor">
+        <bpmn:documentation>Completes with closingDelayDecision = WAIT | CANCEL.</bpmn:documentation>
+        <bpmn:extensionElements>
+          <zeebe:userTask />
+          <zeebe:formDefinition formId="closing_delay_form" />
+          <zeebe:assignmentDefinition candidateGroups="Operations" />
+        </bpmn:extensionElements>
+        <bpmn:incoming>Flow_closingOverdue_resolve</bpmn:incoming>
+        <bpmn:outgoing>Flow_resolveClosing_gateway</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="Gateway_closingDelayDecision" name="Keep waiting?" default="Flow_closingDelay_wait">
+        <bpmn:incoming>Flow_resolveClosing_gateway</bpmn:incoming>
+        <bpmn:outgoing>Flow_closingDelay_wait</bpmn:outgoing>
+        <bpmn:outgoing>Flow_closingDelay_cancel</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:sequenceFlow id="Flow_closingDelay_wait" name="Wait" sourceRef="Gateway_closingDelayDecision" targetRef="Gateway_awaitClosing" />
+      <bpmn:sequenceFlow id="Flow_closingDelay_cancel" name="Cancel" sourceRef="Gateway_closingDelayDecision" targetRef="End_closingCancelledError">
+        <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=closingDelayDecision = "CANCEL"</bpmn:conditionExpression>
+      </bpmn:sequenceFlow>
+      <bpmn:endEvent id="End_closingConfirmed" name="Confirmed">
+        <bpmn:incoming>Flow_closingConfirmed_end</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:endEvent id="End_closingCancelledError" name="Cancelled">
+        <bpmn:incoming>Flow_closingDelay_cancel</bpmn:incoming>
+        <bpmn:errorEventDefinition id="ErrorDef_closingCancelledEnd" errorRef="Error_closingCancelled" />
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_closing_start_gateway" sourceRef="Start_awaitClosing" targetRef="Gateway_awaitClosing" />
+      <bpmn:sequenceFlow id="Flow_closing_confirmed" sourceRef="Gateway_awaitClosing" targetRef="Event_closingConfirmed" />
+      <bpmn:sequenceFlow id="Flow_closing_overdue" sourceRef="Gateway_awaitClosing" targetRef="Event_closingOverdue" />
+      <bpmn:sequenceFlow id="Flow_closingOverdue_resolve" sourceRef="Event_closingOverdue" targetRef="Task_resolveClosingDelay" />
+      <bpmn:sequenceFlow id="Flow_resolveClosing_gateway" sourceRef="Task_resolveClosingDelay" targetRef="Gateway_closingDelayDecision" />
+      <bpmn:sequenceFlow id="Flow_closingConfirmed_end" sourceRef="Event_closingConfirmed" targetRef="End_closingConfirmed" />
+    </bpmn:subProcess>
+    <bpmn:boundaryEvent id="Boundary_closingCancelled" name="Closing cancelled" attachedToRef="SubProcess_awaitClosing">
+      <bpmn:outgoing>Flow_closingCancelled_cancel</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ErrorDef_closingCancelledBoundary" errorRef="Error_closingCancelled" />
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="Task_prepareFundingChecklist" name="Prepare funding checklist">
+      <bpmn:documentation>Normalises funding preconditions (closing confirmed, solicitor instructed, default insurance, outstanding approval conditions) for the readiness decision.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="prepareFundingChecklist" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_closingConfirmed_checklist</bpmn:incoming>
+      <bpmn:incoming>Flow_conditionsCleared_checklist</bpmn:incoming>
+      <bpmn:outgoing>Flow_checklist_readiness</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:businessRuleTask id="Task_fundingReadiness" name="Funding readiness (DMN)">
+      <bpmn:extensionElements>
+        <zeebe:calledDecision decisionId="funding_readiness" resultVariable="fundingReadiness" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_checklist_readiness</bpmn:incoming>
+      <bpmn:outgoing>Flow_readiness_gateway</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+    <bpmn:exclusiveGateway id="Gateway_fundingReady" name="Ready to fund?" default="Flow_readiness_hold">
+      <bpmn:incoming>Flow_readiness_gateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_readiness_fund</bpmn:outgoing>
+      <bpmn:outgoing>Flow_readiness_hold</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_readiness_fund" name="Fund" sourceRef="Gateway_fundingReady" targetRef="Task_disburseMortgage">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=fundingReadiness.decision = "FUND"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_readiness_hold" name="Hold" sourceRef="Gateway_fundingReady" targetRef="Task_clearFundingConditions" />
+    <bpmn:userTask id="Task_clearFundingConditions" name="Clear outstanding funding conditions">
+      <bpmn:documentation>Operations resolves the hold reason (fundingReadiness.reason) and sets insuranceConfirmed / outstandingConditions / fundingHold accordingly.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+        <zeebe:formDefinition formId="funding_conditions_form" />
+        <zeebe:assignmentDefinition candidateGroups="Operations" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_readiness_hold</bpmn:incoming>
+      <bpmn:outgoing>Flow_conditionsCleared_checklist</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_disburseMortgage" name="Core banking mortgage disbursement">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="coreBankingMortgageDisbursement" retries="3" />
+        <zeebe:taskHeaders>
+          <zeebe:header key="integration" value="core-banking" />
+          <zeebe:header key="targetStatus" value="FUNDING" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_readiness_fund</bpmn:incoming>
+      <bpmn:incoming>Flow_fundingIntervention_retry</bpmn:incoming>
+      <bpmn:outgoing>Flow_disbursed_activate</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:boundaryEvent id="Boundary_fundingFailed" name="Disbursement failed" attachedToRef="Task_disburseMortgage">
+      <bpmn:outgoing>Flow_fundingFailed_reverse</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ErrorDef_fundingFailed" errorRef="Error_fundingFailed" />
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="Task_reverseFundingAttempt" name="Reverse partial funding / release holds">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="reverseFundingAttempt" retries="3" />
+        <zeebe:taskHeaders>
+          <zeebe:header key="integration" value="core-banking" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_fundingFailed_reverse</bpmn:incoming>
+      <bpmn:outgoing>Flow_reversed_intervention</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="Task_manualFundingIntervention" name="Manual funding intervention">
+      <bpmn:documentation>Completes with fundingInterventionDecision = RETRY | CANCEL.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+        <zeebe:formDefinition formId="funding_intervention_form" />
+        <zeebe:assignmentDefinition candidateGroups="Operations" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_reversed_intervention</bpmn:incoming>
+      <bpmn:outgoing>Flow_intervention_gateway</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="Gateway_fundingIntervention" name="Retry disbursement?" default="Flow_fundingIntervention_fail">
+      <bpmn:incoming>Flow_intervention_gateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_fundingIntervention_retry</bpmn:outgoing>
+      <bpmn:outgoing>Flow_fundingIntervention_fail</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="Flow_fundingIntervention_retry" name="Retry" sourceRef="Gateway_fundingIntervention" targetRef="Task_disburseMortgage">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=fundingInterventionDecision = "RETRY"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_fundingIntervention_fail" name="Abort" sourceRef="Gateway_fundingIntervention" targetRef="Task_notifyAdvisorFundingFailed" />
+    <bpmn:serviceTask id="Task_notifyAdvisorFundingFailed" name="Notify advisor — funding failed">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="notifyAdvisorFundingFailed" retries="3" />
+        <zeebe:taskHeaders>
+          <zeebe:header key="targetStatus" value="FUNDING_FAILED" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_fundingIntervention_fail</bpmn:incoming>
+      <bpmn:outgoing>Flow_fundingFailed_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_fundingFailed" name="Funding failed">
+      <bpmn:incoming>Flow_fundingFailed_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="Task_activateMortgageAccount" name="Register mortgage &#38; activate account">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="activateMortgageAccount" retries="3" />
+        <zeebe:taskHeaders>
+          <zeebe:header key="integration" value="core-banking" />
+          <zeebe:header key="targetStatus" value="ACTIVE" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_disbursed_activate</bpmn:incoming>
+      <bpmn:outgoing>Flow_activated_notify</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="Task_notifyFundedActive" name="Notify advisor &#38; client — mortgage active">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="notifyMortgageFundedActive" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_activated_notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_notify_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_fundedActive" name="Mortgage funded &#38; active">
+      <bpmn:incoming>Flow_notify_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="End_declineError_preScreen" name="Decline">
+      <bpmn:incoming>Flow_eligibility_decline</bpmn:incoming>
+      <bpmn:errorEventDefinition id="ErrorDef_declinePreScreen" errorRef="Error_declineRequested" />
+    </bpmn:endEvent>
+    <bpmn:endEvent id="End_declineError_compliance" name="Decline">
+      <bpmn:incoming>Flow_compliance_declined</bpmn:incoming>
+      <bpmn:errorEventDefinition id="ErrorDef_declineCompliance" errorRef="Error_declineRequested" />
+    </bpmn:endEvent>
+    <bpmn:endEvent id="End_declineError_route" name="Decline">
+      <bpmn:incoming>Flow_route_decline</bpmn:incoming>
+      <bpmn:errorEventDefinition id="ErrorDef_declineRoute" errorRef="Error_declineRequested" />
+    </bpmn:endEvent>
+    <bpmn:endEvent id="End_declineError_uwOutcome" name="Declined">
+      <bpmn:incoming>Flow_uw_declined</bpmn:incoming>
+      <bpmn:errorEventDefinition id="ErrorDef_declineUw" errorRef="Error_declineRequested" />
+    </bpmn:endEvent>
+    <bpmn:endEvent id="End_cancelError_docExpiry" name="Cancel">
+      <bpmn:incoming>Flow_docExpiry_cancel</bpmn:incoming>
+      <bpmn:errorEventDefinition id="ErrorDef_cancelDocExpiry" errorRef="Error_cancelRequested" />
+    </bpmn:endEvent>
+    <bpmn:endEvent id="End_cancelError_appraisal" name="Cancel">
+      <bpmn:incoming>Flow_appraisalFollowUp_cancel</bpmn:incoming>
+      <bpmn:errorEventDefinition id="ErrorDef_cancelAppraisal" errorRef="Error_cancelRequested" />
+    </bpmn:endEvent>
+    <bpmn:endEvent id="End_cancelError_commitment" name="Withdraw">
+      <bpmn:incoming>Flow_commitmentExpiry_withdraw</bpmn:incoming>
+      <bpmn:errorEventDefinition id="ErrorDef_cancelCommitment" errorRef="Error_cancelRequested" />
+    </bpmn:endEvent>
+    <bpmn:endEvent id="End_cancelError_closingBoundary" name="Cancel">
+      <bpmn:incoming>Flow_closingCancelled_cancel</bpmn:incoming>
+      <bpmn:errorEventDefinition id="ErrorDef_cancelClosingBoundary" errorRef="Error_cancelRequested" />
+    </bpmn:endEvent>
+    <bpmn:subProcess id="EventSubProcess_decline" name="Decline (shared subflow)" triggeredByEvent="true">
+      <bpmn:documentation>Interrupting event sub-process: records decline and sends adverse action notice. Triggered from the main process via error end events (DECLINE_REQUESTED).</bpmn:documentation>
+      <bpmn:startEvent id="Start_declineError" name="Decline requested">
+        <bpmn:outgoing>Flow_declineSub_start</bpmn:outgoing>
+        <bpmn:errorEventDefinition id="ErrorDef_declineSubStart" errorRef="Error_declineRequested" />
+      </bpmn:startEvent>
+      <bpmn:serviceTask id="Task_recordDecline" name="Record decline decision">
+        <bpmn:extensionElements>
+          <zeebe:taskDefinition type="recordDeclineDecision" />
+          <zeebe:taskHeaders>
+            <zeebe:header key="targetStatus" value="DECLINED" />
+          </zeebe:taskHeaders>
+        </bpmn:extensionElements>
+        <bpmn:incoming>Flow_declineSub_start</bpmn:incoming>
+        <bpmn:outgoing>Flow_decline_notice</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="Task_sendAdverseActionNotice" name="Send adverse action notice">
+        <bpmn:extensionElements>
+          <zeebe:taskDefinition type="sendAdverseActionNotice" retries="3" />
+        </bpmn:extensionElements>
+        <bpmn:incoming>Flow_decline_notice</bpmn:incoming>
+        <bpmn:outgoing>Flow_notice_end</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="End_declined" name="Application declined">
+        <bpmn:incoming>Flow_notice_end</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_declineSub_start" sourceRef="Start_declineError" targetRef="Task_recordDecline" />
+      <bpmn:sequenceFlow id="Flow_decline_notice" sourceRef="Task_recordDecline" targetRef="Task_sendAdverseActionNotice" />
+      <bpmn:sequenceFlow id="Flow_notice_end" sourceRef="Task_sendAdverseActionNotice" targetRef="End_declined" />
+    </bpmn:subProcess>
+    <bpmn:subProcess id="EventSubProcess_cancel" name="Cancel (shared subflow)" triggeredByEvent="true">
+      <bpmn:documentation>Interrupting event sub-process: cancels the application and releases holds. Triggered via error end events (CANCEL_REQUESTED) including closing boundary.</bpmn:documentation>
+      <bpmn:startEvent id="Start_cancelError" name="Cancel requested">
+        <bpmn:outgoing>Flow_cancelSub_start</bpmn:outgoing>
+        <bpmn:errorEventDefinition id="ErrorDef_cancelSubStart" errorRef="Error_cancelRequested" />
+      </bpmn:startEvent>
+      <bpmn:serviceTask id="Task_cancelApplication" name="Cancel application &#38; release holds">
+        <bpmn:extensionElements>
+          <zeebe:taskDefinition type="cancelApplication" retries="3" />
+          <zeebe:taskHeaders>
+            <zeebe:header key="targetStatus" value="CANCELLED" />
+          </zeebe:taskHeaders>
+        </bpmn:extensionElements>
+        <bpmn:incoming>Flow_cancelSub_start</bpmn:incoming>
+        <bpmn:outgoing>Flow_cancel_end</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="End_cancelled" name="Application cancelled">
+        <bpmn:incoming>Flow_cancel_end</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_cancelSub_start" sourceRef="Start_cancelError" targetRef="Task_cancelApplication" />
+      <bpmn:sequenceFlow id="Flow_cancel_end" sourceRef="Task_cancelApplication" targetRef="End_cancelled" />
+    </bpmn:subProcess>
+    <bpmn:subProcess id="EventSubProcess_withdrawal" name="Client withdrawal (any phase)" triggeredByEvent="true">
+      <bpmn:startEvent id="Start_withdrawal" name="Application withdrawn">
+        <bpmn:outgoing>Flow_withdrawal_cancel</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="MsgDef_withdrawn" messageRef="Message_applicationWithdrawn" />
+      </bpmn:startEvent>
+      <bpmn:serviceTask id="Task_cancelWithdrawn" name="Cancel application (client withdrew)">
+        <bpmn:extensionElements>
+          <zeebe:taskDefinition type="cancelApplication" retries="3" />
+          <zeebe:taskHeaders>
+            <zeebe:header key="targetStatus" value="WITHDRAWN" />
+            <zeebe:header key="cancelReason" value="CLIENT_WITHDRAWN" />
+          </zeebe:taskHeaders>
+        </bpmn:extensionElements>
+        <bpmn:incoming>Flow_withdrawal_cancel</bpmn:incoming>
+        <bpmn:outgoing>Flow_withdrawal_end</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="End_withdrawn" name="Application withdrawn">
+        <bpmn:incoming>Flow_withdrawal_end</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="Flow_withdrawal_cancel" sourceRef="Start_withdrawal" targetRef="Task_cancelWithdrawn" />
+      <bpmn:sequenceFlow id="Flow_withdrawal_end" sourceRef="Task_cancelWithdrawn" targetRef="End_withdrawn" />
+    </bpmn:subProcess>
+    <bpmn:sequenceFlow id="Flow_start_createFile" sourceRef="StartEvent_applicationSubmitted" targetRef="Task_createMortgageFile" />
+    <bpmn:sequenceFlow id="Flow_validationFailed_notify" sourceRef="Boundary_validationFailed" targetRef="Task_notifyAdvisorInvalidApplication" />
+    <bpmn:sequenceFlow id="Flow_notifyInvalid_end" sourceRef="Task_notifyAdvisorInvalidApplication" targetRef="End_applicationInvalid" />
+    <bpmn:sequenceFlow id="Flow_createFile_preScreenSplit" sourceRef="Task_createMortgageFile" targetRef="Gateway_preScreenSplit" />
+    <bpmn:sequenceFlow id="Flow_preScreenSplit_credit" sourceRef="Gateway_preScreenSplit" targetRef="Task_creditBureauCheck" />
+    <bpmn:sequenceFlow id="Flow_preScreenSplit_aml" sourceRef="Gateway_preScreenSplit" targetRef="Task_amlKycScreening" />
+    <bpmn:sequenceFlow id="Flow_credit_merge" sourceRef="Task_creditBureauCheck" targetRef="Gateway_creditMerge" />
+    <bpmn:sequenceFlow id="Flow_creditTimeout_record" sourceRef="Boundary_creditTimeout" targetRef="Task_recordCreditTimeout" />
+    <bpmn:sequenceFlow id="Flow_creditDecline_record" sourceRef="Boundary_creditHardDecline" targetRef="Task_recordCreditHardDecline" />
+    <bpmn:sequenceFlow id="Flow_creditTimeoutRecorded_merge" sourceRef="Task_recordCreditTimeout" targetRef="Gateway_creditMerge" />
+    <bpmn:sequenceFlow id="Flow_creditDeclineRecorded_merge" sourceRef="Task_recordCreditHardDecline" targetRef="Gateway_creditMerge" />
+    <bpmn:sequenceFlow id="Flow_creditMerge_join" sourceRef="Gateway_creditMerge" targetRef="Gateway_preScreenJoin" />
+    <bpmn:sequenceFlow id="Flow_aml_merge" sourceRef="Task_amlKycScreening" targetRef="Gateway_amlMerge" />
+    <bpmn:sequenceFlow id="Flow_amlTimeout_record" sourceRef="Boundary_amlTimeout" targetRef="Task_recordAmlTimeout" />
+    <bpmn:sequenceFlow id="Flow_amlTimeoutRecorded_merge" sourceRef="Task_recordAmlTimeout" targetRef="Gateway_amlMerge" />
+    <bpmn:sequenceFlow id="Flow_amlMerge_join" sourceRef="Gateway_amlMerge" targetRef="Gateway_preScreenJoin" />
+    <bpmn:sequenceFlow id="Flow_preScreenJoin_eligibility" sourceRef="Gateway_preScreenJoin" targetRef="Task_preScreeningEligibility" />
+    <bpmn:sequenceFlow id="Flow_eligibility_route" sourceRef="Task_preScreeningEligibility" targetRef="Gateway_preScreeningRoute" />
+    <bpmn:sequenceFlow id="Flow_compliance_outcome" sourceRef="Task_complianceReview" targetRef="Gateway_complianceOutcome" />
+    <bpmn:sequenceFlow id="Flow_complianceSla_escalate" sourceRef="Boundary_complianceSla" targetRef="Task_escalateComplianceReview" />
+    <bpmn:sequenceFlow id="Flow_complianceEscalated_end" sourceRef="Task_escalateComplianceReview" targetRef="End_complianceEscalated" />
+    <bpmn:sequenceFlow id="Flow_phase2Split_docs" sourceRef="Gateway_phase2Split" targetRef="SubProcess_financialDocuments" />
+    <bpmn:sequenceFlow id="Flow_phase2Split_appraisal" sourceRef="Gateway_phase2Split" targetRef="Task_requestPropertyAppraisal" />
+    <bpmn:sequenceFlow id="Flow_docs_join" sourceRef="SubProcess_financialDocuments" targetRef="Gateway_phase2Join" />
+    <bpmn:sequenceFlow id="Flow_docsExpired_decide" sourceRef="Boundary_docsExpired" targetRef="Task_decideDocumentExpiry" />
+    <bpmn:sequenceFlow id="Flow_docExpiry_gateway" sourceRef="Task_decideDocumentExpiry" targetRef="Gateway_docExpiryDecision" />
+    <bpmn:sequenceFlow id="Flow_appraisalRequested_wait" sourceRef="Task_requestPropertyAppraisal" targetRef="Gateway_awaitAppraisal" />
+    <bpmn:sequenceFlow id="Flow_await_appraisalCompleted" sourceRef="Gateway_awaitAppraisal" targetRef="Event_appraisalCompleted" />
+    <bpmn:sequenceFlow id="Flow_await_appraisalOverdue" sourceRef="Gateway_awaitAppraisal" targetRef="Event_appraisalOverdue" />
+    <bpmn:sequenceFlow id="Flow_appraisalOverdue_followUp" sourceRef="Event_appraisalOverdue" targetRef="Task_followUpAppraisal" />
+    <bpmn:sequenceFlow id="Flow_followUp_gateway" sourceRef="Task_followUpAppraisal" targetRef="Gateway_appraisalFollowUp" />
+    <bpmn:sequenceFlow id="Flow_appraisalCompleted_ltv" sourceRef="Event_appraisalCompleted" targetRef="Task_calculateLoanToValue" />
+    <bpmn:sequenceFlow id="Flow_ltv_join" sourceRef="Task_calculateLoanToValue" targetRef="Gateway_phase2Join" />
+    <bpmn:sequenceFlow id="Flow_phase2Join_ratios" sourceRef="Gateway_phase2Join" targetRef="Task_calculateDebtServiceRatios" />
+    <bpmn:sequenceFlow id="Flow_ratios_dmn" sourceRef="Task_calculateDebtServiceRatios" targetRef="Task_underwritingDecision" />
+    <bpmn:sequenceFlow id="Flow_dmn_route" sourceRef="Task_underwritingDecision" targetRef="Gateway_underwritingRoute" />
+    <bpmn:sequenceFlow id="Flow_autoApproved_merge" sourceRef="Task_recordAutoApproval" targetRef="Gateway_approvedMerge" />
+    <bpmn:sequenceFlow id="Flow_manualUw_outcome" sourceRef="Task_manualUnderwritingReview" targetRef="Gateway_underwritingOutcome" />
+    <bpmn:sequenceFlow id="Flow_uwSla_escalate" sourceRef="Boundary_underwritingSla" targetRef="Task_escalateUnderwriting" />
+    <bpmn:sequenceFlow id="Flow_uwEscalated_end" sourceRef="Task_escalateUnderwriting" targetRef="End_underwritingEscalated" />
+    <bpmn:sequenceFlow id="Flow_uwOverdue_senior" sourceRef="Boundary_underwritingOverdue" targetRef="Task_seniorUnderwriterReview" />
+    <bpmn:sequenceFlow id="Flow_seniorUw_outcome" sourceRef="Task_seniorUnderwriterReview" targetRef="Gateway_underwritingOutcome" />
+    <bpmn:sequenceFlow id="Flow_manualApproved_merge" sourceRef="Task_recordManualApproval" targetRef="Gateway_approvedMerge" />
+    <bpmn:sequenceFlow id="Flow_approved_commitment" sourceRef="Gateway_approvedMerge" targetRef="Task_generateCommitmentLetter" />
+    <bpmn:sequenceFlow id="Flow_letterFailed_fix" sourceRef="Boundary_letterGenerationFailed" targetRef="Task_fixCommitmentLetter" />
+    <bpmn:sequenceFlow id="Flow_fixLetter_retry" sourceRef="Task_fixCommitmentLetter" targetRef="Task_generateCommitmentLetter" />
+    <bpmn:sequenceFlow id="Flow_commitment_send" sourceRef="Task_generateCommitmentLetter" targetRef="Task_sendCommitmentForEsign" />
+    <bpmn:sequenceFlow id="Flow_send_awaitSignature" sourceRef="Task_sendCommitmentForEsign" targetRef="SubProcess_awaitSignature" />
+    <bpmn:sequenceFlow id="Flow_esignReminder_send" sourceRef="Boundary_esignReminder" targetRef="Task_sendEsignReminder" />
+    <bpmn:sequenceFlow id="Flow_esignReminder_end" sourceRef="Task_sendEsignReminder" targetRef="End_esignReminderSent" />
+    <bpmn:sequenceFlow id="Flow_clientDeclined_record" sourceRef="Boundary_clientDeclined" targetRef="Task_recordClientDeclined" />
+    <bpmn:sequenceFlow id="Flow_clientDeclined_end" sourceRef="Task_recordClientDeclined" targetRef="End_clientDeclined" />
+    <bpmn:sequenceFlow id="Flow_commitmentExpired_decide" sourceRef="Boundary_commitmentExpired" targetRef="Task_decideCommitmentExpiry" />
+    <bpmn:sequenceFlow id="Flow_commitmentExpiry_gateway" sourceRef="Task_decideCommitmentExpiry" targetRef="Gateway_commitmentExpiryDecision" />
+    <bpmn:sequenceFlow id="Flow_signed_solicitor" sourceRef="SubProcess_awaitSignature" targetRef="Task_sendSolicitorInstructions" />
+    <bpmn:sequenceFlow id="Flow_solicitor_awaitClosing" sourceRef="Task_sendSolicitorInstructions" targetRef="SubProcess_awaitClosing" />
+    <bpmn:sequenceFlow id="Flow_closingCancelled_cancel" sourceRef="Boundary_closingCancelled" targetRef="End_cancelError_closingBoundary" />
+    <bpmn:sequenceFlow id="Flow_closingConfirmed_checklist" sourceRef="SubProcess_awaitClosing" targetRef="Task_prepareFundingChecklist" />
+    <bpmn:sequenceFlow id="Flow_conditionsCleared_checklist" sourceRef="Task_clearFundingConditions" targetRef="Task_prepareFundingChecklist" />
+    <bpmn:sequenceFlow id="Flow_checklist_readiness" sourceRef="Task_prepareFundingChecklist" targetRef="Task_fundingReadiness" />
+    <bpmn:sequenceFlow id="Flow_readiness_gateway" sourceRef="Task_fundingReadiness" targetRef="Gateway_fundingReady" />
+    <bpmn:sequenceFlow id="Flow_fundingFailed_reverse" sourceRef="Boundary_fundingFailed" targetRef="Task_reverseFundingAttempt" />
+    <bpmn:sequenceFlow id="Flow_reversed_intervention" sourceRef="Task_reverseFundingAttempt" targetRef="Task_manualFundingIntervention" />
+    <bpmn:sequenceFlow id="Flow_intervention_gateway" sourceRef="Task_manualFundingIntervention" targetRef="Gateway_fundingIntervention" />
+    <bpmn:sequenceFlow id="Flow_fundingFailed_end" sourceRef="Task_notifyAdvisorFundingFailed" targetRef="End_fundingFailed" />
+    <bpmn:sequenceFlow id="Flow_disbursed_activate" sourceRef="Task_disburseMortgage" targetRef="Task_activateMortgageAccount" />
+    <bpmn:sequenceFlow id="Flow_activated_notify" sourceRef="Task_activateMortgageAccount" targetRef="Task_notifyFundedActive" />
+    <bpmn:sequenceFlow id="Flow_notify_end" sourceRef="Task_notifyFundedActive" targetRef="End_fundedActive" />
+  </bpmn:process>
+  <bpmn:error id="Error_declineRequested" name="Decline requested" errorCode="DECLINE_REQUESTED" />
+  <bpmn:error id="Error_cancelRequested" name="Cancel requested" errorCode="CANCEL_REQUESTED" />
+  <bpmn:error id="Error_validationFailed" name="Validation failed" errorCode="VALIDATION_FAILED" />
+  <bpmn:error id="Error_creditHardDecline" name="Credit hard decline" errorCode="CREDIT_HARD_DECLINE" />
+  <bpmn:error id="Error_ecmServiceUnavailable" name="ECM service unavailable" errorCode="ECM_SERVICE_UNAVAILABLE" />
+  <bpmn:error id="Error_documentGenerationFailed" name="Document generation failed" errorCode="DOCUMENT_GENERATION_FAILED" />
+  <bpmn:error id="Error_clientDeclined" name="Client declined commitment" errorCode="CLIENT_DECLINED" />
+  <bpmn:error id="Error_commitmentExpired" name="Commitment expired" errorCode="COMMITMENT_EXPIRED" />
+  <bpmn:error id="Error_closingCancelled" name="Closing cancelled" errorCode="CLOSING_CANCELLED" />
+  <bpmn:error id="Error_fundingFailed" name="Funding failed" errorCode="FUNDING_FAILED" />
+  <bpmn:message id="Message_eDocUploaded" name="eDocUploadedEvent">
+    <bpmn:extensionElements>
+      <zeebe:subscription correlationKey="=applicationId" />
+    </bpmn:extensionElements>
+  </bpmn:message>
+  <bpmn:message id="Message_appraisalCompleted" name="appraisalCompletedEvent">
+    <bpmn:extensionElements>
+      <zeebe:subscription correlationKey="=applicationId" />
+    </bpmn:extensionElements>
+  </bpmn:message>
+  <bpmn:message id="Message_eSignCompleted" name="eSignCompletedEvent">
+    <bpmn:extensionElements>
+      <zeebe:subscription correlationKey="=applicationId" />
+    </bpmn:extensionElements>
+  </bpmn:message>
+  <bpmn:message id="Message_clientDeclinedCommitment" name="clientDeclinedCommitmentEvent">
+    <bpmn:extensionElements>
+      <zeebe:subscription correlationKey="=applicationId" />
+    </bpmn:extensionElements>
+  </bpmn:message>
+  <bpmn:message id="Message_closingDayConfirmed" name="closingDayConfirmedEvent">
+    <bpmn:extensionElements>
+      <zeebe:subscription correlationKey="=applicationId" />
+    </bpmn:extensionElements>
+  </bpmn:message>
+  <bpmn:message id="Message_applicationWithdrawn" name="applicationWithdrawnEvent">
+    <bpmn:extensionElements>
+      <zeebe:subscription correlationKey="=applicationId" />
+    </bpmn:extensionElements>
+  </bpmn:message>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_mortgage_workflow">
+    <bpmndi:BPMNPlane id="BPMNPlane_mortgage_workflow" bpmnElement="mortgage_workflow">
+      <bpmndi:BPMNShape id="StartEvent_applicationSubmitted_di" bpmnElement="StartEvent_applicationSubmitted">
+        <dc:Bounds x="162" y="622" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_createMortgageFile_di" bpmnElement="Task_createMortgageFile">
+        <dc:Bounds x="260" y="600" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_notifyAdvisorInvalidApplication_di" bpmnElement="Task_notifyAdvisorInvalidApplication">
+        <dc:Bounds x="260" y="760" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_applicationInvalid_di" bpmnElement="End_applicationInvalid">
+        <dc:Bounds x="292" y="892" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="271" y="928" width="79" height="40" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_preScreenSplit_di" bpmnElement="Gateway_preScreenSplit">
+        <dc:Bounds x="405" y="615" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="451" y="658" width="78" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_creditBureauCheck_di" bpmnElement="Task_creditBureauCheck">
+        <dc:Bounds x="500" y="480" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_recordCreditTimeout_di" bpmnElement="Task_recordCreditTimeout">
+        <dc:Bounds x="670" y="580" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_recordCreditHardDecline_di" bpmnElement="Task_recordCreditHardDecline">
+        <dc:Bounds x="670" y="390" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_creditMerge_di" bpmnElement="Gateway_creditMerge" isMarkerVisible="true">
+        <dc:Bounds x="815" y="495" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="870" y="533" width="60" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_amlKycScreening_di" bpmnElement="Task_amlKycScreening">
+        <dc:Bounds x="520" y="700" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_recordAmlTimeout_di" bpmnElement="Task_recordAmlTimeout">
+        <dc:Bounds x="680" y="840" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_amlMerge_di" bpmnElement="Gateway_amlMerge" isMarkerVisible="true">
+        <dc:Bounds x="815" y="715" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="853" y="783" width="53" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_preScreenJoin_di" bpmnElement="Gateway_preScreenJoin">
+        <dc:Bounds x="915" y="615" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="845.5" y="658" width="69" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_preScreeningEligibility_di" bpmnElement="Task_preScreeningEligibility">
+        <dc:Bounds x="1030" y="600" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_preScreeningRoute_di" bpmnElement="Gateway_preScreeningRoute" isMarkerVisible="true">
+        <dc:Bounds x="1185" y="615" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1219" y="665" width="42" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_declineError_preScreen_di" bpmnElement="End_declineError_preScreen">
+        <dc:Bounds x="1192" y="722" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1192" y="758" width="37" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_cancelError_appraisal_di" bpmnElement="End_cancelError_appraisal">
+        <dc:Bounds x="2052" y="1022" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2053" y="1058" width="35" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_cancelError_docExpiry_di" bpmnElement="End_cancelError_docExpiry">
+        <dc:Bounds x="2712" y="642" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2713" y="678" width="35" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_declineError_route_di" bpmnElement="End_declineError_route">
+        <dc:Bounds x="3402" y="742" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3401" y="783" width="37" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_cancelError_commitment_di" bpmnElement="End_cancelError_commitment">
+        <dc:Bounds x="5002" y="882" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="4997" y="918" width="46" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_complianceOutcome_di" bpmnElement="Gateway_complianceOutcome" isMarkerVisible="true">
+        <dc:Bounds x="1375" y="480" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1370" y="539.5" width="59" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_declineError_compliance_di" bpmnElement="End_declineError_compliance">
+        <dc:Bounds x="1382" y="372" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1381" y="348" width="37" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_complianceReview_di" bpmnElement="Task_complianceReview">
+        <dc:Bounds x="1160" y="465" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_escalateComplianceReview_di" bpmnElement="Task_escalateComplianceReview">
+        <dc:Bounds x="1160" y="320" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_complianceEscalated_di" bpmnElement="End_complianceEscalated">
+        <dc:Bounds x="1192" y="232" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1169" y="195" width="82" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_phase2Entry_di" bpmnElement="Gateway_phase2Entry" isMarkerVisible="true">
+        <dc:Bounds x="1465" y="615" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1436" y="672" width="69" height="40" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_phase2Split_di" bpmnElement="Gateway_phase2Split">
+        <dc:Bounds x="1555" y="615" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1615" y="626" width="84" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_escalateUnderwriting_di" bpmnElement="Task_escalateUnderwriting">
+        <dc:Bounds x="3480" y="800" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_underwritingEscalated_di" bpmnElement="End_underwritingEscalated">
+        <dc:Bounds x="3512" y="922" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3489" y="958" width="82" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_declineError_uwOutcome_di" bpmnElement="End_declineError_uwOutcome">
+        <dc:Bounds x="3842" y="524" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3838" y="500" width="43" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_seniorUnderwriterReview_di" bpmnElement="Task_seniorUnderwriterReview">
+        <dc:Bounds x="3670" y="700" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_recordAutoApproval_di" bpmnElement="Task_recordAutoApproval">
+        <dc:Bounds x="3650" y="425" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_fixCommitmentLetter_di" bpmnElement="Task_fixCommitmentLetter">
+        <dc:Bounds x="4110" y="760" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_cancelError_closingBoundary_di" bpmnElement="End_cancelError_closingBoundary">
+        <dc:Bounds x="5362" y="902" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="5363" y="938" width="35" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_prepareFundingChecklist_di" bpmnElement="Task_prepareFundingChecklist">
+        <dc:Bounds x="5720" y="600" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_fundingReadiness_di" bpmnElement="Task_fundingReadiness">
+        <dc:Bounds x="5880" y="600" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_fundingReady_di" bpmnElement="Gateway_fundingReady" isMarkerVisible="true">
+        <dc:Bounds x="6035" y="615" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="6022" y="591" width="75" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_clearFundingConditions_di" bpmnElement="Task_clearFundingConditions">
+        <dc:Bounds x="5880" y="800" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_disburseMortgage_di" bpmnElement="Task_disburseMortgage">
+        <dc:Bounds x="6160" y="600" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_reverseFundingAttempt_di" bpmnElement="Task_reverseFundingAttempt">
+        <dc:Bounds x="6160" y="760" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_manualFundingIntervention_di" bpmnElement="Task_manualFundingIntervention">
+        <dc:Bounds x="6320" y="760" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_fundingIntervention_di" bpmnElement="Gateway_fundingIntervention" isMarkerVisible="true">
+        <dc:Bounds x="6445" y="775" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="6434" y="825" width="73" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_notifyAdvisorFundingFailed_di" bpmnElement="Task_notifyAdvisorFundingFailed">
+        <dc:Bounds x="6540" y="760" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_fundingFailed_di" bpmnElement="End_fundingFailed">
+        <dc:Bounds x="6702" y="782" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="6685" y="818" width="70" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_activateMortgageAccount_di" bpmnElement="Task_activateMortgageAccount">
+        <dc:Bounds x="6320" y="600" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_notifyFundedActive_di" bpmnElement="Task_notifyFundedActive">
+        <dc:Bounds x="6480" y="600" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_fundedActive_di" bpmnElement="End_fundedActive">
+        <dc:Bounds x="6642" y="622" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="6618" y="658" width="84" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SubProcess_financialDocuments_di" bpmnElement="SubProcess_financialDocuments" isExpanded="true">
+        <dc:Bounds x="1660" y="100" width="1200" height="460" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Start_docs_di" bpmnElement="Start_docs">
+        <dc:Bounds x="1682" y="312" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_waitEdoc_di" bpmnElement="Event_waitEdoc">
+        <dc:Bounds x="1752" y="312" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_validateDocumentViaEcm_di" bpmnElement="Task_validateDocumentViaEcm">
+        <dc:Bounds x="1840" y="290" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_manualDocumentReview_di" bpmnElement="Task_manualDocumentReview">
+        <dc:Bounds x="1840" y="140" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_documentValid_di" bpmnElement="Gateway_documentValid" isMarkerVisible="true">
+        <dc:Bounds x="1985" y="305" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_updateDocumentChecklist_di" bpmnElement="Task_updateDocumentChecklist">
+        <dc:Bounds x="2090" y="290" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_allDocsReceived_di" bpmnElement="Gateway_allDocsReceived" isMarkerVisible="true">
+        <dc:Bounds x="2235" y="305" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_notifyAdvisorDocumentIssue_di" bpmnElement="Task_notifyAdvisorDocumentIssue">
+        <dc:Bounds x="1960" y="430" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_docs_di" bpmnElement="End_docs">
+        <dc:Bounds x="2322" y="312" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EventSubProcess_docReminder_di" bpmnElement="EventSubProcess_docReminder" isExpanded="true">
+        <dc:Bounds x="2400" y="360" width="380" height="140" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Start_docReminder_di" bpmnElement="Start_docReminder">
+        <dc:Bounds x="2422" y="412" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2397" y="448" width="86" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_sendDocumentReminder_di" bpmnElement="Task_sendDocumentReminder">
+        <dc:Bounds x="2500" y="390" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_docReminder_di" bpmnElement="End_docReminder">
+        <dc:Bounds x="2632" y="412" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_docReminder_send_di" bpmnElement="Flow_docReminder_send">
+        <di:waypoint x="2458" y="430" />
+        <di:waypoint x="2500" y="430" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_docReminder_end_di" bpmnElement="Flow_docReminder_end">
+        <di:waypoint x="2600" y="430" />
+        <di:waypoint x="2632" y="430" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Boundary_ecmTimeout_di" bpmnElement="Boundary_ecmTimeout">
+        <dc:Bounds x="1892" y="272" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Boundary_ecmUnavailable_di" bpmnElement="Boundary_ecmUnavailable">
+        <dc:Bounds x="1852" y="272" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_docValid_checklist_di" bpmnElement="Flow_docValid_checklist">
+        <di:waypoint x="2035" y="330" />
+        <di:waypoint x="2090" y="330" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_docInvalid_notify_di" bpmnElement="Flow_docInvalid_notify">
+        <di:waypoint x="2010" y="355" />
+        <di:waypoint x="2010" y="430" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_allDocs_end_di" bpmnElement="Flow_allDocs_end">
+        <di:waypoint x="2285" y="330" />
+        <di:waypoint x="2322" y="330" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_moreDocs_wait_di" bpmnElement="Flow_moreDocs_wait">
+        <di:waypoint x="2260" y="355" />
+        <di:waypoint x="2260" y="540" />
+        <di:waypoint x="1762" y="540" />
+        <di:waypoint x="1762" y="348" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_docs_start_wait_di" bpmnElement="Flow_docs_start_wait">
+        <di:waypoint x="1718" y="330" />
+        <di:waypoint x="1752" y="330" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_wait_validate_di" bpmnElement="Flow_wait_validate">
+        <di:waypoint x="1788" y="330" />
+        <di:waypoint x="1840" y="330" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_validate_gateway_di" bpmnElement="Flow_validate_gateway">
+        <di:waypoint x="1940" y="330" />
+        <di:waypoint x="1985" y="330" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ecmError_manual_di" bpmnElement="Flow_ecmError_manual">
+        <di:waypoint x="1870" y="272" />
+        <di:waypoint x="1870" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ecmTimeout_manual_di" bpmnElement="Flow_ecmTimeout_manual">
+        <di:waypoint x="1910" y="272" />
+        <di:waypoint x="1910" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_manualDoc_gateway_di" bpmnElement="Flow_manualDoc_gateway">
+        <di:waypoint x="1940" y="180" />
+        <di:waypoint x="2010" y="180" />
+        <di:waypoint x="2010" y="305" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_checklist_allDocs_di" bpmnElement="Flow_checklist_allDocs">
+        <di:waypoint x="2190" y="330" />
+        <di:waypoint x="2235" y="330" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_docIssue_wait_di" bpmnElement="Flow_docIssue_wait">
+        <di:waypoint x="1960" y="470" />
+        <di:waypoint x="1778" y="470" />
+        <di:waypoint x="1778" y="348" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Task_decideDocumentExpiry_di" bpmnElement="Task_decideDocumentExpiry">
+        <dc:Bounds x="2450" y="620" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_docExpiryDecision_di" bpmnElement="Gateway_docExpiryDecision" isMarkerVisible="true">
+        <dc:Bounds x="2595" y="635" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2599.5" y="695" width="41" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_requestPropertyAppraisal_di" bpmnElement="Task_requestPropertyAppraisal">
+        <dc:Bounds x="1660" y="760" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_awaitAppraisal_di" bpmnElement="Gateway_awaitAppraisal">
+        <dc:Bounds x="1805" y="775" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_appraisalCompleted_di" bpmnElement="Event_appraisalCompleted">
+        <dc:Bounds x="1902" y="782" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_appraisalOverdue_di" bpmnElement="Event_appraisalOverdue">
+        <dc:Bounds x="1812" y="922" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_followUpAppraisal_di" bpmnElement="Task_followUpAppraisal">
+        <dc:Bounds x="1900" y="900" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_appraisalFollowUp_di" bpmnElement="Gateway_appraisalFollowUp" isMarkerVisible="true">
+        <dc:Bounds x="2045" y="915" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2035" y="891" width="70" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_calculateLoanToValue_di" bpmnElement="Task_calculateLoanToValue">
+        <dc:Bounds x="1990" y="760" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_phase2Join_di" bpmnElement="Gateway_phase2Join">
+        <dc:Bounds x="2965" y="615" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_calculateDebtServiceRatios_di" bpmnElement="Task_calculateDebtServiceRatios">
+        <dc:Bounds x="3080" y="600" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_underwritingDecision_di" bpmnElement="Task_underwritingDecision">
+        <dc:Bounds x="3240" y="600" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_underwritingRoute_di" bpmnElement="Gateway_underwritingRoute" isMarkerVisible="true">
+        <dc:Bounds x="3395" y="615" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_manualUnderwritingReview_di" bpmnElement="Task_manualUnderwritingReview">
+        <dc:Bounds x="3500" y="600" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_underwritingOutcome_di" bpmnElement="Gateway_underwritingOutcome" isMarkerVisible="true">
+        <dc:Bounds x="3835" y="615" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3829" y="674.5" width="62" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_recordManualApproval_di" bpmnElement="Task_recordManualApproval">
+        <dc:Bounds x="3940" y="600" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_approvedMerge_di" bpmnElement="Gateway_approvedMerge" isMarkerVisible="true">
+        <dc:Bounds x="4095" y="615" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_generateCommitmentLetter_di" bpmnElement="Task_generateCommitmentLetter">
+        <dc:Bounds x="4200" y="600" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_sendCommitmentForEsign_di" bpmnElement="Task_sendCommitmentForEsign">
+        <dc:Bounds x="4360" y="600" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SubProcess_awaitSignature_di" bpmnElement="SubProcess_awaitSignature" isExpanded="true">
+        <dc:Bounds x="4520" y="480" width="380" height="320" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Start_awaitSignature_di" bpmnElement="Start_awaitSignature">
+        <dc:Bounds x="4542" y="622" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_awaitEsign_di" bpmnElement="Gateway_awaitEsign">
+        <dc:Bounds x="4615" y="615" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_esignCompleted_di" bpmnElement="Event_esignCompleted">
+        <dc:Bounds x="4722" y="622" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_clientDeclined_di" bpmnElement="Event_clientDeclined">
+        <dc:Bounds x="4722" y="722" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_commitmentExpired_di" bpmnElement="Event_commitmentExpired">
+        <dc:Bounds x="4722" y="522" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_signed_di" bpmnElement="End_signed">
+        <dc:Bounds x="4812" y="622" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_clientDeclinedError_di" bpmnElement="End_clientDeclinedError">
+        <dc:Bounds x="4812" y="722" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_commitmentExpiredError_di" bpmnElement="End_commitmentExpiredError">
+        <dc:Bounds x="4812" y="522" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_sig_start_gateway_di" bpmnElement="Flow_sig_start_gateway">
+        <di:waypoint x="4578" y="640" />
+        <di:waypoint x="4615" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_sig_signed_di" bpmnElement="Flow_sig_signed">
+        <di:waypoint x="4665" y="640" />
+        <di:waypoint x="4722" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_sig_declined_di" bpmnElement="Flow_sig_declined">
+        <di:waypoint x="4640" y="665" />
+        <di:waypoint x="4640" y="740" />
+        <di:waypoint x="4722" y="740" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_sig_expired_di" bpmnElement="Flow_sig_expired">
+        <di:waypoint x="4640" y="615" />
+        <di:waypoint x="4640" y="540" />
+        <di:waypoint x="4722" y="540" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_signed_end_di" bpmnElement="Flow_signed_end">
+        <di:waypoint x="4758" y="640" />
+        <di:waypoint x="4812" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_declined_errorEnd_di" bpmnElement="Flow_declined_errorEnd">
+        <di:waypoint x="4758" y="740" />
+        <di:waypoint x="4812" y="740" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_expired_errorEnd_di" bpmnElement="Flow_expired_errorEnd">
+        <di:waypoint x="4758" y="540" />
+        <di:waypoint x="4812" y="540" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Task_sendEsignReminder_di" bpmnElement="Task_sendEsignReminder">
+        <dc:Bounds x="4550" y="340" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_esignReminderSent_di" bpmnElement="End_esignReminderSent">
+        <dc:Bounds x="4692" y="362" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_recordClientDeclined_di" bpmnElement="Task_recordClientDeclined">
+        <dc:Bounds x="4550" y="860" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_clientDeclined_di" bpmnElement="End_clientDeclined">
+        <dc:Bounds x="4692" y="882" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_decideCommitmentExpiry_di" bpmnElement="Task_decideCommitmentExpiry">
+        <dc:Bounds x="4750" y="860" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_commitmentExpiryDecision_di" bpmnElement="Gateway_commitmentExpiryDecision" isMarkerVisible="true">
+        <dc:Bounds x="4895" y="875" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="4899" y="851" width="41" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_sendSolicitorInstructions_di" bpmnElement="Task_sendSolicitorInstructions">
+        <dc:Bounds x="4960" y="600" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EventSubProcess_cancel_di" bpmnElement="EventSubProcess_cancel" isExpanded="true">
+        <dc:Bounds x="730" y="1220" width="350" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Start_cancelError_di" bpmnElement="Start_cancelError">
+        <dc:Bounds x="782" y="1282" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="763" y="1318" width="74" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_cancelApplication_di" bpmnElement="Task_cancelApplication">
+        <dc:Bounds x="860" y="1260" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_cancelled_di" bpmnElement="End_cancelled">
+        <dc:Bounds x="1000" y="1282" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="973" y="1318" width="90" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_cancelSub_start_di" bpmnElement="Flow_cancelSub_start">
+        <di:waypoint x="818" y="1300" />
+        <di:waypoint x="860" y="1300" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_cancel_end_di" bpmnElement="Flow_cancel_end">
+        <di:waypoint x="960" y="1300" />
+        <di:waypoint x="1000" y="1300" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="EventSubProcess_withdrawal_di" bpmnElement="EventSubProcess_withdrawal" isExpanded="true">
+        <dc:Bounds x="160" y="1040" width="320" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Start_withdrawal_di" bpmnElement="Start_withdrawal">
+        <dc:Bounds x="182" y="1102" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="173" y="1138" width="54" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_cancelWithdrawn_di" bpmnElement="Task_cancelWithdrawn">
+        <dc:Bounds x="260" y="1080" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_withdrawn_di" bpmnElement="End_withdrawn">
+        <dc:Bounds x="402" y="1102" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="393" y="1138" width="54" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_withdrawal_cancel_di" bpmnElement="Flow_withdrawal_cancel">
+        <di:waypoint x="218" y="1120" />
+        <di:waypoint x="260" y="1120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_withdrawal_end_di" bpmnElement="Flow_withdrawal_end">
+        <di:waypoint x="360" y="1120" />
+        <di:waypoint x="402" y="1120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="EventSubProcess_decline_di" bpmnElement="EventSubProcess_decline" isExpanded="true">
+        <dc:Bounds x="160" y="1220" width="490" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Start_declineError_di" bpmnElement="Start_declineError">
+        <dc:Bounds x="212" y="1282" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="186" y="1318" width="89" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_recordDecline_di" bpmnElement="Task_recordDecline">
+        <dc:Bounds x="290" y="1260" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_sendAdverseActionNotice_di" bpmnElement="Task_sendAdverseActionNotice">
+        <dc:Bounds x="430" y="1260" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_declined_di" bpmnElement="End_declined">
+        <dc:Bounds x="570" y="1282" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="561" y="1318" width="54" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_declineSub_start_di" bpmnElement="Flow_declineSub_start">
+        <di:waypoint x="248" y="1300" />
+        <di:waypoint x="290" y="1300" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_decline_notice_di" bpmnElement="Flow_decline_notice">
+        <di:waypoint x="390" y="1300" />
+        <di:waypoint x="430" y="1300" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_notice_end_di" bpmnElement="Flow_notice_end">
+        <di:waypoint x="530" y="1300" />
+        <di:waypoint x="570" y="1300" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="SubProcess_awaitClosing_di" bpmnElement="SubProcess_awaitClosing" isExpanded="true">
+        <dc:Bounds x="5120" y="460" width="520" height="360" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Start_awaitClosing_di" bpmnElement="Start_awaitClosing">
+        <dc:Bounds x="5142" y="582" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_awaitClosing_di" bpmnElement="Gateway_awaitClosing">
+        <dc:Bounds x="5215" y="575" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_closingConfirmed_di" bpmnElement="Event_closingConfirmed">
+        <dc:Bounds x="5322" y="582" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="5309" y="618" width="63" height="40" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_closingOverdue_di" bpmnElement="Event_closingOverdue">
+        <dc:Bounds x="5222" y="702" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="5201" y="738" width="78" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_resolveClosingDelay_di" bpmnElement="Task_resolveClosingDelay">
+        <dc:Bounds x="5300" y="680" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_closingDelayDecision_di" bpmnElement="Gateway_closingDelayDecision" isMarkerVisible="true">
+        <dc:Bounds x="5445" y="695" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="5435" y="745" width="70" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_closingConfirmed_di" bpmnElement="End_closingConfirmed">
+        <dc:Bounds x="5412" y="582" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="5405" y="618" width="51" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_closingCancelledError_di" bpmnElement="End_closingCancelledError">
+        <dc:Bounds x="5542" y="702" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="5536" y="738" width="49" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_closing_start_gateway_di" bpmnElement="Flow_closing_start_gateway">
+        <di:waypoint x="5178" y="600" />
+        <di:waypoint x="5215" y="600" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_closingDelay_wait_di" bpmnElement="Flow_closingDelay_wait">
+        <di:waypoint x="5470" y="695" />
+        <di:waypoint x="5470" y="520" />
+        <di:waypoint x="5240" y="520" />
+        <di:waypoint x="5240" y="575" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="5344" y="495" width="22" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_closing_confirmed_di" bpmnElement="Flow_closing_confirmed">
+        <di:waypoint x="5265" y="600" />
+        <di:waypoint x="5322" y="600" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_closing_overdue_di" bpmnElement="Flow_closing_overdue">
+        <di:waypoint x="5240" y="625" />
+        <di:waypoint x="5240" y="702" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_closingConfirmed_end_di" bpmnElement="Flow_closingConfirmed_end">
+        <di:waypoint x="5358" y="600" />
+        <di:waypoint x="5412" y="600" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_closingOverdue_resolve_di" bpmnElement="Flow_closingOverdue_resolve">
+        <di:waypoint x="5258" y="720" />
+        <di:waypoint x="5300" y="720" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_resolveClosing_gateway_di" bpmnElement="Flow_resolveClosing_gateway">
+        <di:waypoint x="5400" y="720" />
+        <di:waypoint x="5445" y="720" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_closingDelay_cancel_di" bpmnElement="Flow_closingDelay_cancel">
+        <di:waypoint x="5495" y="720" />
+        <di:waypoint x="5542" y="720" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="5501" y="695" width="35" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Boundary_commitmentExpired_di" bpmnElement="Boundary_commitmentExpired">
+        <dc:Bounds x="4782" y="782" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Boundary_clientDeclined_di" bpmnElement="Boundary_clientDeclined">
+        <dc:Bounds x="4582" y="782" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Boundary_esignReminder_di" bpmnElement="Boundary_esignReminder">
+        <dc:Bounds x="4582" y="462" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Boundary_underwritingOverdue_di" bpmnElement="Boundary_underwritingOverdue">
+        <dc:Bounds x="3552" y="662" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Boundary_underwritingSla_di" bpmnElement="Boundary_underwritingSla">
+        <dc:Bounds x="3512" y="662" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Boundary_docsExpired_di" bpmnElement="Boundary_docsExpired">
+        <dc:Bounds x="2482" y="542" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Boundary_amlTimeout_di" bpmnElement="Boundary_amlTimeout">
+        <dc:Bounds x="552" y="762" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="576" y="813" width="87" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Boundary_creditHardDecline_di" bpmnElement="Boundary_creditHardDecline">
+        <dc:Bounds x="542" y="462" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="579" y="453" width="62" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Boundary_creditTimeout_di" bpmnElement="Boundary_creditTimeout">
+        <dc:Bounds x="542" y="542" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="562" y="575.5" width="75" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Boundary_validationFailed_di" bpmnElement="Boundary_validationFailed">
+        <dc:Bounds x="292" y="662" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Boundary_complianceSla_di" bpmnElement="Boundary_complianceSla">
+        <dc:Bounds x="1192" y="447" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1188" y="423" width="43" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Boundary_letterGenerationFailed_di" bpmnElement="Boundary_letterGenerationFailed">
+        <dc:Bounds x="4232" y="662" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="4208" y="698" width="84" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Boundary_closingCancelled_di" bpmnElement="Boundary_closingCancelled">
+        <dc:Bounds x="5362" y="802" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="5337" y="838" width="87" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Boundary_fundingFailed_di" bpmnElement="Boundary_fundingFailed">
+        <dc:Bounds x="6192" y="662" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="6176" y="698" width="68" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_eligibility_proceed_di" bpmnElement="Flow_eligibility_proceed">
+        <di:waypoint x="1235" y="640" />
+        <di:waypoint x="1465" y="640" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1329" y="615" width="41" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_eligibility_decline_di" bpmnElement="Flow_eligibility_decline">
+        <di:waypoint x="1210" y="665" />
+        <di:waypoint x="1210" y="722" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1197" y="686" width="37" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_eligibility_review_di" bpmnElement="Flow_eligibility_review">
+        <di:waypoint x="1210" y="615" />
+        <di:waypoint x="1210" y="545" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1174" y="594" width="71" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_compliance_cleared_di" bpmnElement="Flow_compliance_cleared">
+        <di:waypoint x="1425" y="505" />
+        <di:waypoint x="1490" y="505" />
+        <di:waypoint x="1490" y="615" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1438" y="480" width="39" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_compliance_declined_di" bpmnElement="Flow_compliance_declined">
+        <di:waypoint x="1400" y="480" />
+        <di:waypoint x="1400" y="408" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1386" y="443" width="43" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_phase2Entry_split_di" bpmnElement="Flow_phase2Entry_split">
+        <di:waypoint x="1515" y="640" />
+        <di:waypoint x="1555" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_docExpiry_extend_di" bpmnElement="Flow_docExpiry_extend">
+        <di:waypoint x="2620" y="635" />
+        <di:waypoint x="2620" y="560" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_docExpiry_cancel_di" bpmnElement="Flow_docExpiry_cancel">
+        <di:waypoint x="2645" y="660" />
+        <di:waypoint x="2712" y="660" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2649" y="638" width="35" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_appraisalFollowUp_wait_di" bpmnElement="Flow_appraisalFollowUp_wait">
+        <di:waypoint x="2095" y="940" />
+        <di:waypoint x="2210" y="940" />
+        <di:waypoint x="2210" y="690" />
+        <di:waypoint x="1830" y="690" />
+        <di:waypoint x="1830" y="775" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2229" y="808" width="22" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_appraisalFollowUp_cancel_di" bpmnElement="Flow_appraisalFollowUp_cancel">
+        <di:waypoint x="2070" y="965" />
+        <di:waypoint x="2070" y="1022" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2067" y="980" width="35" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_route_auto_di" bpmnElement="Flow_route_auto">
+        <di:waypoint x="3420" y="615" />
+        <di:waypoint x="3420" y="465" />
+        <di:waypoint x="3650" y="465" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3399" y="530" width="73" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_route_decline_di" bpmnElement="Flow_route_decline">
+        <di:waypoint x="3420" y="665" />
+        <di:waypoint x="3420" y="742" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3403" y="691" width="37" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_route_manual_di" bpmnElement="Flow_route_manual">
+        <di:waypoint x="3445" y="640" />
+        <di:waypoint x="3500" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_uw_approved_di" bpmnElement="Flow_uw_approved">
+        <di:waypoint x="3885" y="640" />
+        <di:waypoint x="3940" y="640" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3889" y="615" width="48" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_uw_declined_di" bpmnElement="Flow_uw_declined">
+        <di:waypoint x="3860" y="615" />
+        <di:waypoint x="3860" y="560" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="3836" y="585" width="43" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_commitmentExpiry_extend_di" bpmnElement="Flow_commitmentExpiry_extend">
+        <di:waypoint x="4920" y="925" />
+        <di:waypoint x="4920" y="1000" />
+        <di:waypoint x="4280" y="1000" />
+        <di:waypoint x="4280" y="680" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="4558" y="975" width="84" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_commitmentExpiry_withdraw_di" bpmnElement="Flow_commitmentExpiry_withdraw">
+        <di:waypoint x="4945" y="900" />
+        <di:waypoint x="5002" y="900" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="4977" y="881" width="46" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_start_createFile_di" bpmnElement="Flow_start_createFile">
+        <di:waypoint x="198" y="640" />
+        <di:waypoint x="260" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_validationFailed_notify_di" bpmnElement="Flow_validationFailed_notify">
+        <di:waypoint x="310" y="698" />
+        <di:waypoint x="310" y="760" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_notifyInvalid_end_di" bpmnElement="Flow_notifyInvalid_end">
+        <di:waypoint x="310" y="840" />
+        <di:waypoint x="310" y="892" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_createFile_preScreenSplit_di" bpmnElement="Flow_createFile_preScreenSplit">
+        <di:waypoint x="360" y="640" />
+        <di:waypoint x="405" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_preScreenSplit_credit_di" bpmnElement="Flow_preScreenSplit_credit">
+        <di:waypoint x="430" y="615" />
+        <di:waypoint x="430" y="520" />
+        <di:waypoint x="500" y="520" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_preScreenSplit_aml_di" bpmnElement="Flow_preScreenSplit_aml">
+        <di:waypoint x="430" y="665" />
+        <di:waypoint x="430" y="740" />
+        <di:waypoint x="520" y="740" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_credit_merge_di" bpmnElement="Flow_credit_merge">
+        <di:waypoint x="600" y="520" />
+        <di:waypoint x="815" y="520" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_creditTimeout_record_di" bpmnElement="Flow_creditTimeout_record">
+        <di:waypoint x="560" y="578" />
+        <di:waypoint x="560" y="620" />
+        <di:waypoint x="670" y="620" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_creditDecline_record_di" bpmnElement="Flow_creditDecline_record">
+        <di:waypoint x="560" y="462" />
+        <di:waypoint x="560" y="430" />
+        <di:waypoint x="670" y="430" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_creditTimeoutRecorded_merge_di" bpmnElement="Flow_creditTimeoutRecorded_merge">
+        <di:waypoint x="770" y="620" />
+        <di:waypoint x="840" y="620" />
+        <di:waypoint x="840" y="545" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_creditDeclineRecorded_merge_di" bpmnElement="Flow_creditDeclineRecorded_merge">
+        <di:waypoint x="770" y="430" />
+        <di:waypoint x="840" y="430" />
+        <di:waypoint x="840" y="495" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_creditMerge_join_di" bpmnElement="Flow_creditMerge_join">
+        <di:waypoint x="865" y="520" />
+        <di:waypoint x="940" y="520" />
+        <di:waypoint x="940" y="615" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_aml_merge_di" bpmnElement="Flow_aml_merge">
+        <di:waypoint x="620" y="740" />
+        <di:waypoint x="815" y="740" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_amlTimeout_record_di" bpmnElement="Flow_amlTimeout_record">
+        <di:waypoint x="570" y="798" />
+        <di:waypoint x="570" y="880" />
+        <di:waypoint x="680" y="880" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_amlTimeoutRecorded_merge_di" bpmnElement="Flow_amlTimeoutRecorded_merge">
+        <di:waypoint x="780" y="880" />
+        <di:waypoint x="840" y="880" />
+        <di:waypoint x="840" y="765" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_amlMerge_join_di" bpmnElement="Flow_amlMerge_join">
+        <di:waypoint x="865" y="740" />
+        <di:waypoint x="940" y="740" />
+        <di:waypoint x="940" y="665" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_preScreenJoin_eligibility_di" bpmnElement="Flow_preScreenJoin_eligibility">
+        <di:waypoint x="965" y="640" />
+        <di:waypoint x="1030" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_eligibility_route_di" bpmnElement="Flow_eligibility_route">
+        <di:waypoint x="1130" y="640" />
+        <di:waypoint x="1185" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_compliance_outcome_di" bpmnElement="Flow_compliance_outcome">
+        <di:waypoint x="1260" y="505" />
+        <di:waypoint x="1375" y="505" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_complianceSla_escalate_di" bpmnElement="Flow_complianceSla_escalate">
+        <di:waypoint x="1210" y="447" />
+        <di:waypoint x="1210" y="400" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_complianceEscalated_end_di" bpmnElement="Flow_complianceEscalated_end">
+        <di:waypoint x="1210" y="320" />
+        <di:waypoint x="1210" y="268" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_phase2Split_docs_di" bpmnElement="Flow_phase2Split_docs">
+        <di:waypoint x="1580" y="615" />
+        <di:waypoint x="1580" y="330" />
+        <di:waypoint x="1660" y="330" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_phase2Split_appraisal_di" bpmnElement="Flow_phase2Split_appraisal">
+        <di:waypoint x="1580" y="665" />
+        <di:waypoint x="1580" y="800" />
+        <di:waypoint x="1660" y="800" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_docs_join_di" bpmnElement="Flow_docs_join">
+        <di:waypoint x="2860" y="330" />
+        <di:waypoint x="2990" y="330" />
+        <di:waypoint x="2990" y="615" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_docsExpired_decide_di" bpmnElement="Flow_docsExpired_decide">
+        <di:waypoint x="2500" y="578" />
+        <di:waypoint x="2500" y="620" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_docExpiry_gateway_di" bpmnElement="Flow_docExpiry_gateway">
+        <di:waypoint x="2550" y="660" />
+        <di:waypoint x="2595" y="660" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_appraisalRequested_wait_di" bpmnElement="Flow_appraisalRequested_wait">
+        <di:waypoint x="1760" y="800" />
+        <di:waypoint x="1805" y="800" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_await_appraisalCompleted_di" bpmnElement="Flow_await_appraisalCompleted">
+        <di:waypoint x="1855" y="800" />
+        <di:waypoint x="1902" y="800" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_await_appraisalOverdue_di" bpmnElement="Flow_await_appraisalOverdue">
+        <di:waypoint x="1830" y="825" />
+        <di:waypoint x="1830" y="922" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_appraisalOverdue_followUp_di" bpmnElement="Flow_appraisalOverdue_followUp">
+        <di:waypoint x="1848" y="940" />
+        <di:waypoint x="1900" y="940" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_followUp_gateway_di" bpmnElement="Flow_followUp_gateway">
+        <di:waypoint x="2000" y="940" />
+        <di:waypoint x="2045" y="940" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_appraisalCompleted_ltv_di" bpmnElement="Flow_appraisalCompleted_ltv">
+        <di:waypoint x="1938" y="800" />
+        <di:waypoint x="1990" y="800" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ltv_join_di" bpmnElement="Flow_ltv_join">
+        <di:waypoint x="2090" y="800" />
+        <di:waypoint x="2990" y="800" />
+        <di:waypoint x="2990" y="665" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_phase2Join_ratios_di" bpmnElement="Flow_phase2Join_ratios">
+        <di:waypoint x="3015" y="640" />
+        <di:waypoint x="3080" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ratios_dmn_di" bpmnElement="Flow_ratios_dmn">
+        <di:waypoint x="3180" y="640" />
+        <di:waypoint x="3240" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_dmn_route_di" bpmnElement="Flow_dmn_route">
+        <di:waypoint x="3340" y="640" />
+        <di:waypoint x="3395" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_autoApproved_merge_di" bpmnElement="Flow_autoApproved_merge">
+        <di:waypoint x="3750" y="465" />
+        <di:waypoint x="4120" y="465" />
+        <di:waypoint x="4120" y="615" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_manualUw_outcome_di" bpmnElement="Flow_manualUw_outcome">
+        <di:waypoint x="3600" y="640" />
+        <di:waypoint x="3835" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_uwSla_escalate_di" bpmnElement="Flow_uwSla_escalate">
+        <di:waypoint x="3530" y="698" />
+        <di:waypoint x="3530" y="800" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_uwEscalated_end_di" bpmnElement="Flow_uwEscalated_end">
+        <di:waypoint x="3530" y="880" />
+        <di:waypoint x="3530" y="922" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_uwOverdue_senior_di" bpmnElement="Flow_uwOverdue_senior">
+        <di:waypoint x="3570" y="698" />
+        <di:waypoint x="3570" y="740" />
+        <di:waypoint x="3670" y="740" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_seniorUw_outcome_di" bpmnElement="Flow_seniorUw_outcome">
+        <di:waypoint x="3770" y="740" />
+        <di:waypoint x="3860" y="740" />
+        <di:waypoint x="3860" y="665" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_manualApproved_merge_di" bpmnElement="Flow_manualApproved_merge">
+        <di:waypoint x="4040" y="640" />
+        <di:waypoint x="4095" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_approved_commitment_di" bpmnElement="Flow_approved_commitment">
+        <di:waypoint x="4145" y="640" />
+        <di:waypoint x="4200" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_letterFailed_fix_di" bpmnElement="Flow_letterFailed_fix">
+        <di:waypoint x="4250" y="698" />
+        <di:waypoint x="4250" y="800" />
+        <di:waypoint x="4210" y="800" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_fixLetter_retry_di" bpmnElement="Flow_fixLetter_retry">
+        <di:waypoint x="4160" y="760" />
+        <di:waypoint x="4160" y="655" />
+        <di:waypoint x="4200" y="655" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_commitment_send_di" bpmnElement="Flow_commitment_send">
+        <di:waypoint x="4300" y="640" />
+        <di:waypoint x="4360" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_send_awaitSignature_di" bpmnElement="Flow_send_awaitSignature">
+        <di:waypoint x="4460" y="640" />
+        <di:waypoint x="4520" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_esignReminder_send_di" bpmnElement="Flow_esignReminder_send">
+        <di:waypoint x="4600" y="462" />
+        <di:waypoint x="4600" y="420" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_esignReminder_end_di" bpmnElement="Flow_esignReminder_end">
+        <di:waypoint x="4650" y="380" />
+        <di:waypoint x="4692" y="380" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_clientDeclined_record_di" bpmnElement="Flow_clientDeclined_record">
+        <di:waypoint x="4600" y="818" />
+        <di:waypoint x="4600" y="860" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_clientDeclined_end_di" bpmnElement="Flow_clientDeclined_end">
+        <di:waypoint x="4650" y="900" />
+        <di:waypoint x="4692" y="900" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_commitmentExpired_decide_di" bpmnElement="Flow_commitmentExpired_decide">
+        <di:waypoint x="4800" y="818" />
+        <di:waypoint x="4800" y="860" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_commitmentExpiry_gateway_di" bpmnElement="Flow_commitmentExpiry_gateway">
+        <di:waypoint x="4850" y="900" />
+        <di:waypoint x="4895" y="900" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_signed_solicitor_di" bpmnElement="Flow_signed_solicitor">
+        <di:waypoint x="4900" y="640" />
+        <di:waypoint x="4960" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_solicitor_awaitClosing_di" bpmnElement="Flow_solicitor_awaitClosing">
+        <di:waypoint x="5059" y="607" />
+        <di:waypoint x="5120" y="607" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_closingConfirmed_checklist_di" bpmnElement="Flow_closingConfirmed_checklist">
+        <di:waypoint x="5640" y="640" />
+        <di:waypoint x="5720" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_closingCancelled_cancel_di" bpmnElement="Flow_closingCancelled_cancel">
+        <di:waypoint x="5380" y="838" />
+        <di:waypoint x="5380" y="902" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_conditionsCleared_checklist_di" bpmnElement="Flow_conditionsCleared_checklist">
+        <di:waypoint x="5880" y="840" />
+        <di:waypoint x="5770" y="840" />
+        <di:waypoint x="5770" y="680" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_checklist_readiness_di" bpmnElement="Flow_checklist_readiness">
+        <di:waypoint x="5820" y="640" />
+        <di:waypoint x="5880" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_readiness_gateway_di" bpmnElement="Flow_readiness_gateway">
+        <di:waypoint x="5980" y="640" />
+        <di:waypoint x="6035" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_readiness_fund_di" bpmnElement="Flow_readiness_fund">
+        <di:waypoint x="6085" y="640" />
+        <di:waypoint x="6160" y="640" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="6110" y="615" width="26" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_readiness_hold_di" bpmnElement="Flow_readiness_hold">
+        <di:waypoint x="6060" y="665" />
+        <di:waypoint x="6060" y="840" />
+        <di:waypoint x="5980" y="840" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="6064" y="742" width="23" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_fundingIntervention_retry_di" bpmnElement="Flow_fundingIntervention_retry">
+        <di:waypoint x="6470" y="825" />
+        <di:waypoint x="6470" y="900" />
+        <di:waypoint x="6130" y="900" />
+        <di:waypoint x="6130" y="655" />
+        <di:waypoint x="6160" y="655" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="6287" y="875" width="27" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_disbursed_activate_di" bpmnElement="Flow_disbursed_activate">
+        <di:waypoint x="6260" y="640" />
+        <di:waypoint x="6320" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_fundingFailed_reverse_di" bpmnElement="Flow_fundingFailed_reverse">
+        <di:waypoint x="6210" y="698" />
+        <di:waypoint x="6210" y="760" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_reversed_intervention_di" bpmnElement="Flow_reversed_intervention">
+        <di:waypoint x="6260" y="800" />
+        <di:waypoint x="6320" y="800" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_intervention_gateway_di" bpmnElement="Flow_intervention_gateway">
+        <di:waypoint x="6420" y="800" />
+        <di:waypoint x="6445" y="800" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_fundingIntervention_fail_di" bpmnElement="Flow_fundingIntervention_fail">
+        <di:waypoint x="6495" y="800" />
+        <di:waypoint x="6540" y="800" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="6504" y="775" width="27" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_fundingFailed_end_di" bpmnElement="Flow_fundingFailed_end">
+        <di:waypoint x="6640" y="800" />
+        <di:waypoint x="6702" y="800" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_activated_notify_di" bpmnElement="Flow_activated_notify">
+        <di:waypoint x="6420" y="640" />
+        <di:waypoint x="6480" y="640" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_notify_end_di" bpmnElement="Flow_notify_end">
+        <di:waypoint x="6580" y="640" />
+        <di:waypoint x="6642" y="640" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

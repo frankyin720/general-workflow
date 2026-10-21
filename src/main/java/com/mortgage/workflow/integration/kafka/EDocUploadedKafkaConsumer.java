@@ -21,7 +21,7 @@ import org.springframework.stereotype.Component;
  * Consumes ECM eDoc upload events (AWS MSK) and correlates {@code eDocUploadedEvent} to the mortgage application process.
  */
 @Component
-@ConditionalOnProperty(prefix = "mortgage-workflow.integration.kafka", name = "enabled", havingValue = "true")
+@ConditionalOnProperty(prefix = "application-workflow.integration.kafka", name = "enabled", havingValue = "true")
 public class EDocUploadedKafkaConsumer {
 
 	private static final Logger log = LoggerFactory.getLogger(EDocUploadedKafkaConsumer.class);
@@ -40,7 +40,7 @@ public class EDocUploadedKafkaConsumer {
 	}
 
 	@KafkaListener(
-			topics = "${mortgage-workflow.integration.kafka.topics.edoc-uploaded}",
+			topics = "${application-workflow.integration.kafka.topics.edoc-uploaded}",
 			groupId = "${spring.kafka.consumer.group-id}")
 	public void onEdocUploaded(
 			ConsumerRecord<String, String> record,
@@ -59,6 +59,7 @@ public class EDocUploadedKafkaConsumer {
 		try {
 			Map<String, Object> variables = new HashMap<>();
 			variables.put("documentId", message.documentId());
+			variables.put("documentType", message.documentType());
 			variables.put("documentStatus", message.status());
 			camundaMessageBridge.correlateOrBuffer(
 					WorkflowTaskService.MESSAGE_EDOC_UPLOADED,

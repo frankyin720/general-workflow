@@ -1,0 +1,62 @@
+{
+  "components": [
+    {
+      "type": "text",
+      "id": "Field_closing_delay_form_T",
+      "text": "## Closing overdue (45 days)\nNo closing confirmation has been received from the solicitor / notary.",
+      "layout": {
+        "row": "Row_1"
+      }
+    },
+    {
+      "type": "textfield",
+      "id": "Field_closing_delay_form_L1",
+      "key": "solicitorInstructionId",
+      "label": "Solicitor instruction id",
+      "readonly": true,
+      "layout": {
+        "row": "Row_2"
+      }
+    },
+    {
+      "type": "radio",
+      "id": "Field_closing_delay_form_L2",
+      "key": "closingDelayDecision",
+      "label": "Decision",
+      "values": [
+        {
+          "value": "WAIT",
+          "label": "New closing date agreed — keep waiting"
+        },
+        {
+          "value": "CANCEL",
+          "label": "Deal collapsed — cancel application"
+        }
+      ],
+      "validate": {
+        "required": true
+      },
+      "layout": {
+        "row": "Row_3"
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "Field_closing_delay_form_L3",
+      "key": "closingDelayNotes",
+      "label": "Notes",
+      "layout": {
+        "row": "Row_4"
+      }
+    }
+  ],
+  "type": "default",
+  "executionPlatform": "Camunda Cloud",
+  "executionPlatformVersion": "8.10.0",
+  "exporter": {
+    "name": "Camunda Modeler",
+    "version": "5.52.0"
+  },
+  "schemaVersion": 18,
+  "id": "closing_delay_form"
+}

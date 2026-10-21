@@ -1,0 +1,72 @@
+{
+  "components": [
+    {
+      "type": "text",
+      "id": "Field_funding_intervention_form_T",
+      "text": "## Manual funding intervention\nThe core banking disbursement failed and the attempt was reversed.",
+      "layout": {
+        "row": "Row_1"
+      }
+    },
+    {
+      "type": "textfield",
+      "id": "Field_funding_intervention_form_I1",
+      "key": "fundingFailureReason",
+      "label": "Failure reason",
+      "readonly": true,
+      "layout": {
+        "row": "Row_2"
+      }
+    },
+    {
+      "type": "textfield",
+      "id": "Field_funding_intervention_form_I2",
+      "key": "fundingReversalReference",
+      "label": "Reversal reference",
+      "readonly": true,
+      "layout": {
+        "row": "Row_3"
+      }
+    },
+    {
+      "type": "radio",
+      "id": "Field_funding_intervention_form_I3",
+      "key": "fundingInterventionDecision",
+      "label": "Decision",
+      "values": [
+        {
+          "value": "RETRY",
+          "label": "Issue corrected — retry disbursement"
+        },
+        {
+          "value": "ABORT",
+          "label": "Abort funding and notify advisor"
+        }
+      ],
+      "validate": {
+        "required": true
+      },
+      "layout": {
+        "row": "Row_4"
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "Field_funding_intervention_form_I4",
+      "key": "fundingInterventionNotes",
+      "label": "Notes",
+      "layout": {
+        "row": "Row_5"
+      }
+    }
+  ],
+  "type": "default",
+  "executionPlatform": "Camunda Cloud",
+  "executionPlatformVersion": "8.10.0",
+  "exporter": {
+    "name": "Camunda Modeler",
+    "version": "5.52.0"
+  },
+  "schemaVersion": 18,
+  "id": "funding_intervention_form"
+}

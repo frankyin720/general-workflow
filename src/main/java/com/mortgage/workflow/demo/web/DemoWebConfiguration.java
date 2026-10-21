@@ -6,7 +6,7 @@ import org.springframework.web.servlet.config.annotation.ViewControllerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 @Configuration
-@ConditionalOnProperty(prefix = "mortgage-workflow.demo", name = "enabled", havingValue = "true")
+@ConditionalOnProperty(prefix = "application-workflow.demo", name = "enabled", havingValue = "true")
 public class DemoWebConfiguration implements WebMvcConfigurer {
 
 	@Override

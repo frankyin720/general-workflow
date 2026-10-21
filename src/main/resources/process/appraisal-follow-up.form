@@ -1,0 +1,62 @@
+{
+  "components": [
+    {
+      "type": "text",
+      "id": "Field_appraisal_follow_up_form_T",
+      "text": "## Appraisal overdue (10 days)\nThe appraisal report has not been received. Contact the appraisal management company.",
+      "layout": {
+        "row": "Row_1"
+      }
+    },
+    {
+      "type": "textfield",
+      "id": "Field_appraisal_follow_up_form_A1",
+      "key": "appraisalRequestId",
+      "label": "Appraisal request id",
+      "readonly": true,
+      "layout": {
+        "row": "Row_2"
+      }
+    },
+    {
+      "type": "radio",
+      "id": "Field_appraisal_follow_up_form_A2",
+      "key": "appraisalFollowUpDecision",
+      "label": "Decision",
+      "values": [
+        {
+          "value": "WAIT",
+          "label": "Keep waiting (another 10 days)"
+        },
+        {
+          "value": "CANCEL",
+          "label": "Cancel application"
+        }
+      ],
+      "validate": {
+        "required": true
+      },
+      "layout": {
+        "row": "Row_3"
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "Field_appraisal_follow_up_form_A3",
+      "key": "appraisalFollowUpNotes",
+      "label": "Notes",
+      "layout": {
+        "row": "Row_4"
+      }
+    }
+  ],
+  "type": "default",
+  "executionPlatform": "Camunda Cloud",
+  "executionPlatformVersion": "8.10.0",
+  "exporter": {
+    "name": "Camunda Modeler",
+    "version": "5.52.0"
+  },
+  "schemaVersion": 18,
+  "id": "appraisal_follow_up_form"
+}

@@ -1,8 +1,8 @@
 {
   "info": {
     "_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "name": "mortgage-workflow + Camunda 8 (local)",
-    "description": "REST calls for the mortgage-workflow Spring app (port 8081) and Camunda Orchestration Cluster API (port 8080).\n\n**Local defaults:** c8run on 8080, `./mvnw spring-boot:run` on 8081.\n\n**mortgage-workflow process message names:** `eDocUploadedEvent`, `eSignCompletedEvent` — correlation key = process variable `applicationId` (same as startup `applicationId` / businessId).\n\n**Kafka / MSK integration (topics, payloads, env vars, flow diagram):** see repo `docs/kafka-camunda-integration.md`.",
+    "name": "application-workflow + Camunda 8 (local)",
+    "description": "REST calls for the application-workflow Spring app (port 8081) and Camunda Orchestration Cluster API (port 8080).\n\n**Local defaults:** c8run on 8080, `./mvnw spring-boot:run` on 8081.\n\n**application-workflow process message names:** `eDocUploadedEvent`, `eSignCompletedEvent` — correlation key = process variable `applicationId` (same as startup `applicationId` / businessId).\n\n**Kafka / MSK integration (topics, payloads, env vars, flow diagram):** see repo `docs/kafka-camunda-integration.md`.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -32,13 +32,13 @@
     },
     {
       "key": "bpmnProcessId",
-      "value": "mortgage-workflow"
+      "value": "mortgage_workflow"
     }
   ],
   "item": [
     {
       "name": "Mortgage Workflow — Application API",
-      "description": "Workflow helper API exposed by mortgage-workflow (`WorkflowController`).",
+      "description": "Workflow helper API exposed by application-workflow (`WorkflowController`).",
       "item": [
         {
           "name": "Start mortgage application process process",
@@ -71,7 +71,7 @@
               "raw": "{\n  \"applicationId\": \"{{applicationId}}\",\n  \"applicationType\": \"{{applicationType}}\",\n  \"integrationScenario\": \"\"\n}"
             },
             "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/processes/mortgage_workflow/instances",
-            "description": "Starts `mortgage-workflow` with businessId and variables `applicationId`, `applicationType`."
+            "description": "Starts `application-workflow` with businessId and variables `applicationId`, `applicationType`."
           }
         },
         {
@@ -95,15 +95,9 @@
           "request": {
             "method": "GET",
             "url": {
-              "raw": "{{mortgageWorkflowBaseUrl}}/api/workflow/user-tasks?assignee=",
-              "host": ["{{mortgageWorkflowBaseUrl}}"],
-              "path": ["api", "workflow", "user-tasks"],
-              "query": [
-                {
-                  "key": "assignee",
-                  "value": "",
-                  "description": "Optional; omit or leave empty for all CREATED tasks"
-                }
+              "raw": "{{mortgageWorkflowBaseUrl}}/api/workflow/user-tasks?candidateGroup=Bank Underwriter",
+              "host": [
+                "{{mortgageWorkflowBaseUrl}}"
               ]
             }
           }
@@ -120,14 +114,19 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"variables\": {\n    \"underwritingDecision\": \"APPROVED\"\n  }\n}"
+              "raw": "{\n  \"action\": \"complete\",\n  \"variables\": {\n    \"underwritingDecision\": \"APPROVED\",\n    \"approvalConditionsText\": \"Proof of fire insurance\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/user-tasks/{{userTaskKey}}/completion",
             "description": "Set `userTaskKey` from list response. Reject path: `underwritingDecision`: `REJECTED`, add `rejectionReason`."
           }
         },
         {
-          "name": "Complete user task (reject manual review)",
+          "name": "Complete user task (decline manual review)",
           "request": {
             "method": "POST",
             "header": [
@@ -138,7 +137,12 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"variables\": {\n    \"underwritingDecision\": \"REJECTED\",\n    \"rejectionReason\": \"Insufficient income documentation\"\n  }\n}"
+              "raw": "{\n  \"action\": \"complete\",\n  \"variables\": {\n    \"underwritingDecision\": \"DECLINED\",\n    \"declineReason\": \"TDS above policy\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/user-tasks/{{userTaskKey}}/completion"
           }
@@ -155,10 +159,38 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"applicationId\": \"{{applicationId}}\"\n}"
+              "raw": "{\n  \"applicationId\": \"{{applicationId}}\",\n  \"variables\": {\n    \"documentId\": \"DOC-NOA-001\",\n    \"documentType\": \"NOA\",\n    \"documentStatus\": \"UPLOADED\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/messages/edoc-uploaded",
             "description": "Unblocks `Event_waitEdocUpload` when instance is waiting."
+          }
+        },
+        {
+          "name": "Correlate appraisal completed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"applicationId\": \"{{applicationId}}\",\n  \"variables\": {\n    \"appraisedValue\": 650000\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/messages/appraisal-completed",
+            "description": "Unblocks `Event_waitEsignCompleted` (Operate shows Waiting on eSign)."
           }
         },
         {
@@ -173,9 +205,83 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"applicationId\": \"{{applicationId}}\"\n}"
+              "raw": "{\n  \"applicationId\": \"{{applicationId}}\",\n  \"variables\": {\n    \"eSignStatus\": \"COMPLETED\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/messages/esign-completed",
+            "description": "Unblocks `Event_waitEsignCompleted` (Operate shows Waiting on eSign)."
+          }
+        },
+        {
+          "name": "Correlate client declined commitment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"applicationId\": \"{{applicationId}}\",\n  \"variables\": {\n    \"clientDeclineReason\": \"Competing offer\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/messages/client-declined-commitment",
+            "description": "Unblocks `Event_waitEsignCompleted` (Operate shows Waiting on eSign)."
+          }
+        },
+        {
+          "name": "Correlate closing day confirmed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"applicationId\": \"{{applicationId}}\",\n  \"variables\": {\n    \"closingStatus\": \"CONFIRMED\",\n    \"closingConfirmed\": true\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/messages/closing-day-confirmed",
+            "description": "Unblocks `Event_waitEsignCompleted` (Operate shows Waiting on eSign)."
+          }
+        },
+        {
+          "name": "Correlate application withdrawn",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"applicationId\": \"{{applicationId}}\",\n  \"variables\": {\n    \"cancelReason\": \"CLIENT_WITHDRAWN\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/messages/application-withdrawn",
             "description": "Unblocks `Event_waitEsignCompleted` (Operate shows Waiting on eSign)."
           }
         }
@@ -214,7 +320,7 @@
                   "key": "resources",
                   "type": "file",
                   "src": [],
-                  "description": "Add: mortgage-workflow.bpmn, automated-risk-assessment.dmn, manual-underwriting-review.form from src/main/resources/process/"
+                  "description": "Add: application-workflow.bpmn, automated-risk-assessment.dmn, manual-underwriting-review.form from src/main/resources/process/"
                 }
               ]
             },
@@ -258,7 +364,7 @@
               "raw": "{\n  \"processDefinitionId\": \"{{bpmnProcessId}}\",\n  \"businessId\": \"{{applicationId}}\",\n  \"variables\": {\n    \"applicationId\": \"{{applicationId}}\",\n    \"applicationType\": \"{{applicationType}}\"\n  }\n}"
             },
             "url": "{{camundaBaseUrl}}/v2/process-instances",
-            "description": "Bypasses mortgage-workflow; variables must be flat JSON strings (not `{ \"value\": ... }` wrappers)."
+            "description": "Bypasses application-workflow; variables must be flat JSON strings (not `{ \"value\": ... }` wrappers)."
           }
         },
         {
@@ -513,7 +619,7 @@
     },
     {
       "name": "Mortgage Workflow — Happy path (run in order)",
-      "description": "Requires mortgage-workflow running (workers). Set a unique `applicationId` in collection variables first.",
+      "description": "Requires application-workflow running (workers). Set a unique `applicationId` in collection variables first.",
       "item": [
         {
           "name": "1 Start mortgage application process",
@@ -557,13 +663,18 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"applicationId\": \"{{applicationId}}\"\n}"
+              "raw": "{\n  \"applicationId\": \"{{applicationId}}\",\n  \"variables\": {\n    \"documentId\": \"DOC-NOA-001\",\n    \"documentType\": \"NOA\",\n    \"documentStatus\": \"UPLOADED\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/messages/edoc-uploaded"
           }
         },
         {
-          "name": "3 Correlate eSign",
+          "name": "3 Correlate appraisal completed",
           "request": {
             "method": "POST",
             "header": [
@@ -574,13 +685,62 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"applicationId\": \"{{applicationId}}\"\n}"
+              "raw": "{\n  \"applicationId\": \"{{applicationId}}\",\n  \"variables\": {\n    \"appraisedValue\": 650000\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/messages/appraisal-completed"
+          }
+        },
+        {
+          "name": "4 Correlate eSign",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"applicationId\": \"{{applicationId}}\",\n  \"variables\": {\n    \"eSignStatus\": \"COMPLETED\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/messages/esign-completed"
           }
         },
         {
-          "name": "4 Verify instance completed",
+          "name": "5 Correlate closing day confirmed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"applicationId\": \"{{applicationId}}\",\n  \"variables\": {\n    \"closingStatus\": \"CONFIRMED\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/messages/closing-day-confirmed"
+          }
+        },
+        {
+          "name": "6 Verify instance completed",
           "request": {
             "method": "GET",
             "url": "{{camundaBaseUrl}}/v2/process-instances/{{processInstanceKey}}"

@@ -1,5 +1,7 @@
 package com.mortgage.workflow.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.search.enums.ProcessInstanceState;
 import io.camunda.client.api.search.response.ProcessInstance;
@@ -8,26 +10,32 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 
 @Service
 public class ProcessInstanceQueryService {
 
-	private static final List<String> STATUS_VARIABLES = List.of(
-			"applicationId",
-			"applicationType",
-			"applicationStatus",
-			"creditScore",
-			"amlClear",
-			"edocsVerified",
-			"documentValid",
-			"riskDecision",
-			"underwritingDecision",
-			"completedSteps",
-			"integrationScenario",
-			"demoCreditScore");
+	/** Process-scope variables surfaced to the demo portal status view. */
+	private static final Set<String> STATUS_VARIABLES = Set.of(
+			"applicationId", "applicationType", "applicationStatus", "customerName", "mortgageFileNumber",
+			"loanAmount", "purchasePrice", "annualIncome",
+			"creditScore", "creditCheckOutcome", "amlOutcome", "amlClear", "preScreening", "complianceDecision",
+			"requiredDocuments", "verifiedDocumentTypes", "outstandingDocuments", "financialDocumentsVerified",
+			"documentValid", "documentReminderCount", "documentExpiryDecision",
+			"appraisalRequestId", "appraisedValue", "ltvRatio", "propertyAppraisalComplete", "appraisalFollowUpDecision",
+			"qualifyingRate", "gdsRatio", "tdsRatio", "underwriting", "underwritingDecision", "approvalPath",
+			"approvalConditionsText", "insuranceRequired", "escalationCount", "lastEscalation",
+			"declineStage", "declineReason",
+			"commitmentLetterId", "commitmentVersion", "commitmentExpiresAt", "eSignStatus", "esignReminderCount",
+			"commitmentExpiryDecision", "clientDeclineReason", "solicitorInstructionsSent",
+			"closingConfirmed", "closingStatus", "closingDelayDecision", "fundingReadiness", "outstandingConditions",
+			"disbursementAttempt", "disbursementReference", "fundingFailureReason", "fundingInterventionDecision",
+			"mortgageAccountNumber", "cancelReason",
+			"completedSteps", "integrationScenario", "demoCreditScore", "lastNotification");
 
 	private final CamundaClient camundaClient;
+	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	public ProcessInstanceQueryService(CamundaClient camundaClient) {
 		this.camundaClient = camundaClient;
@@ -49,46 +57,35 @@ public class ProcessInstanceQueryService {
 		return Optional.of(items.getFirst());
 	}
 
+	/** Reads all process-scope variables in one query and keeps the ones relevant for the status view. */
 	public Map<String, Object> snapshotVariables(long processInstanceKey) {
 		Map<String, Object> values = new HashMap<>();
-		for (String name : STATUS_VARIABLES) {
-			readVariable(processInstanceKey, name).ifPresent(value -> values.put(name, value));
+		List<Variable> items = camundaClient.newVariableSearchRequest()
+				.filter(filter -> {
+					filter.processInstanceKey(processInstanceKey);
+					filter.scopeKey(processInstanceKey);
+				})
+				.page(p -> p.limit(200))
+				.execute()
+				.items();
+		for (Variable variable : items) {
+			if (STATUS_VARIABLES.contains(variable.getName())) {
+				Object value = coerceValue(variable.getValue());
+				if (value != null) {
+					values.put(variable.getName(), value);
+				}
+			}
 		}
 		return values;
 	}
 
-	private Optional<Object> readVariable(long processInstanceKey, String name) {
-		var items = camundaClient.newVariableSearchRequest()
-				.filter(filter -> {
-					filter.processInstanceKey(processInstanceKey);
-					filter.name(name);
-				})
-				.page(p -> p.limit(1))
-				.execute()
-				.items();
-		if (items.isEmpty()) {
-			return Optional.empty();
-		}
-		Variable variable = items.getFirst();
-		return Optional.ofNullable(coerceValue(variable.getValue()));
-	}
-
-	private static Object coerceValue(String raw) {
-		if (raw == null) {
+	private Object coerceValue(String raw) {
+		if (raw == null || raw.isBlank() || "null".equals(raw)) {
 			return null;
 		}
-		if ("true".equalsIgnoreCase(raw) || "false".equalsIgnoreCase(raw)) {
-			return Boolean.parseBoolean(raw);
-		}
 		try {
-			if (raw.contains(".")) {
-				return Double.parseDouble(raw);
-			}
-			return Long.parseLong(raw);
-		} catch (NumberFormatException ignored) {
-			if (raw.length() >= 2 && raw.startsWith("\"") && raw.endsWith("\"")) {
-				return raw.substring(1, raw.length() - 1);
-			}
+			return objectMapper.readValue(raw, Object.class);
+		} catch (JsonProcessingException ignored) {
 			return raw;
 		}
 	}

@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Mortgage Workflow — Demo Portal</title>
+  <title>application-workflow — Demo Portal</title>
   <link rel="stylesheet" href="/app.css" />
 </head>
 <body>
   <div id="app">
     <header class="topbar">
       <div class="brand">
-        <span class="logo">Mortgage Workflow</span>
+        <span class="logo">application-workflow</span>
         <span class="subtitle">Single-screen workflow conductor</span>
       </div>
       <div id="userBadge" class="user-badge"></div>
@@ -25,12 +25,14 @@
         <aside class="sidebar">
           <h2>Pipeline</h2>
           <ol class="pipeline" id="pipelineSteps">
-            <li data-step="submit">Application submitted</li>
-            <li data-step="edoc">eDoc upload &amp; ECM</li>
-            <li data-step="credit">Credit / AML / risk</li>
-            <li data-step="uw">Manual underwriting</li>
-            <li data-step="esign">eSign</li>
-            <li data-step="fund">Funding &amp; notify</li>
+            <li data-step="SUBMITTED">1 · Application &amp; file creation</li>
+            <li data-step="PRE_SCREENING">1 · Credit bureau, AML/KYC, eligibility</li>
+            <li data-step="DOCUMENTATION">2 · Income &amp; financial eDocs</li>
+            <li data-step="APPRAISAL">2 · Property appraisal &amp; LTV</li>
+            <li data-step="UNDERWRITING">3 · GDS/TDS &amp; underwriting</li>
+            <li data-step="COMMITMENT">4 · Commitment letter &amp; eSign</li>
+            <li data-step="CLOSING">4 · Solicitor &amp; closing day</li>
+            <li data-step="FUNDING">5 · Funding &amp; activation</li>
           </ol>
           <div id="roleHint" class="role-hint"></div>
         </aside>

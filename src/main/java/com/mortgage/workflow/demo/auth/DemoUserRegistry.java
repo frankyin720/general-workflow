@@ -15,41 +15,14 @@ public class DemoUserRegistry {
 
 	public DemoUserRegistry() {
 		List<DemoUser> users = List.of(
-				new DemoUser(
-						"advisor.smith",
-						"demo",
-						"Alex Smith",
-						DemoRole.ADVISOR,
-						null),
-				new DemoUser(
-						"customer.lee",
-						"demo",
-						"Jamie Lee",
-						DemoRole.CUSTOMER,
-						null),
-				new DemoUser(
-						"underwriter.jones",
-						"demo",
-						"Taylor Jones",
-						DemoRole.UNDERWRITER,
+				new DemoUser("advisor.smith", "demo", "Alex Smith", DemoRole.ADVISOR, "Advisor"),
+				new DemoUser("customer.lee", "demo", "Jamie Lee", DemoRole.CUSTOMER, null),
+				new DemoUser("underwriter.jones", "demo", "Taylor Jones", DemoRole.UNDERWRITER,
 						DemoRole.UNDERWRITER_CAMUNDA_GROUP),
-				new DemoUser(
-						"ecm.bot",
-						"demo",
-						"ECM Integration Bot",
-						DemoRole.ECM_SYSTEM,
-						null),
-				new DemoUser(
-						"ops.admin",
-						"demo",
-						"Ops Admin",
-						DemoRole.OPERATIONS,
-						null),
-				new DemoUser(
-						"demo.conductor",
-						"demo",
-						"Demo Conductor",
-						DemoRole.CONDUCTOR,
+				new DemoUser("compliance.khan", "demo", "Priya Khan", DemoRole.COMPLIANCE, "Compliance"),
+				new DemoUser("ecm.bot", "demo", "ECM Integration Bot", DemoRole.ECM_SYSTEM, null),
+				new DemoUser("ops.admin", "demo", "Ops Admin", DemoRole.OPERATIONS, "Operations"),
+				new DemoUser("demo.conductor", "demo", "Demo Conductor", DemoRole.CONDUCTOR,
 						DemoRole.UNDERWRITER_CAMUNDA_GROUP));
 		this.byUsername = users.stream().collect(Collectors.toMap(DemoUser::username, Function.identity()));
 	}

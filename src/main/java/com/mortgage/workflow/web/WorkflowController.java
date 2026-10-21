@@ -29,13 +29,18 @@ public class WorkflowController {
 	}
 
 	@PostMapping("/processes/mortgage_workflow/instances")
-	public StartProcessResponse startMortgageWorkflow(@RequestBody(required = false) StartProcessRequest request) {
+	public StartProcessResponse startApplicationWorkflow(@RequestBody(required = false) StartProcessRequest request) {
 		StartProcessRequest payload = request != null ? request : new StartProcessRequest(null, null, null, null);
-		return workflowTaskService.startMortgageWorkflow(payload);
+		return workflowTaskService.startApplicationWorkflow(payload);
 	}
 
 	@GetMapping("/user-tasks")
-	public List<UserTaskView> listOpenUserTasks(@RequestParam(required = false) String assignee) {
+	public List<UserTaskView> listOpenUserTasks(
+			@RequestParam(required = false) String assignee,
+			@RequestParam(required = false) String candidateGroup) {
+		if (candidateGroup != null && !candidateGroup.isBlank()) {
+			return workflowTaskService.listOpenUserTasksForCandidateGroup(candidateGroup);
+		}
 		return workflowTaskService.listOpenUserTasks(assignee);
 	}
 
@@ -50,14 +55,36 @@ public class WorkflowController {
 
 	@PostMapping("/messages/edoc-uploaded")
 	public MessageCorrelationResponse correlateEdocUploaded(@RequestBody PublishMessageRequest request) {
-		return workflowTaskService.correlateMessage(
-				WorkflowTaskService.MESSAGE_EDOC_UPLOADED, request.applicationId());
+		return correlate(WorkflowTaskService.MESSAGE_EDOC_UPLOADED, request);
+	}
+
+	@PostMapping("/messages/appraisal-completed")
+	public MessageCorrelationResponse correlateAppraisalCompleted(@RequestBody PublishMessageRequest request) {
+		return correlate(WorkflowTaskService.MESSAGE_APPRAISAL_COMPLETED, request);
 	}
 
 	@PostMapping("/messages/esign-completed")
 	public MessageCorrelationResponse correlateEsignCompleted(@RequestBody PublishMessageRequest request) {
-		return workflowTaskService.correlateMessage(
-				WorkflowTaskService.MESSAGE_ESIGN_COMPLETED, request.applicationId());
+		return correlate(WorkflowTaskService.MESSAGE_ESIGN_COMPLETED, request);
+	}
+
+	@PostMapping("/messages/client-declined-commitment")
+	public MessageCorrelationResponse correlateClientDeclined(@RequestBody PublishMessageRequest request) {
+		return correlate(WorkflowTaskService.MESSAGE_CLIENT_DECLINED_COMMITMENT, request);
+	}
+
+	@PostMapping("/messages/closing-day-confirmed")
+	public MessageCorrelationResponse correlateClosingConfirmed(@RequestBody PublishMessageRequest request) {
+		return correlate(WorkflowTaskService.MESSAGE_CLOSING_DAY_CONFIRMED, request);
+	}
+
+	@PostMapping("/messages/application-withdrawn")
+	public MessageCorrelationResponse correlateWithdrawn(@RequestBody PublishMessageRequest request) {
+		return correlate(WorkflowTaskService.MESSAGE_APPLICATION_WITHDRAWN, request);
+	}
+
+	private MessageCorrelationResponse correlate(String messageName, PublishMessageRequest request) {
+		return workflowTaskService.correlateMessage(messageName, request.applicationId(), request.variablesOrEmpty());
 	}
 
 }

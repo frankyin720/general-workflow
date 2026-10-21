@@ -18,7 +18,7 @@ import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConditionalOnProperty(prefix = "mortgage-workflow.integration.kafka", name = "enabled", havingValue = "true")
+@ConditionalOnProperty(prefix = "application-workflow.integration.kafka", name = "enabled", havingValue = "true")
 public class ESignCompletedKafkaConsumer {
 
 	private static final Logger log = LoggerFactory.getLogger(ESignCompletedKafkaConsumer.class);
@@ -37,7 +37,7 @@ public class ESignCompletedKafkaConsumer {
 	}
 
 	@KafkaListener(
-			topics = "${mortgage-workflow.integration.kafka.topics.esign-completed}",
+			topics = "${application-workflow.integration.kafka.topics.esign-completed}",
 			groupId = "${spring.kafka.consumer.group-id}")
 	public void onEsignCompleted(
 			ConsumerRecord<String, String> record,

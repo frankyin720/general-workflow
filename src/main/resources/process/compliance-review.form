@@ -1,0 +1,43 @@
+{
+  "components": [
+    {
+      "text": "## Pre-screening exception review\nThe eligibility decision routed this application for manual review (see reason). Clear it to continue to documentation, or decline.",
+      "type": "text",
+      "id": "Field_cr_instructions",
+      "layout": { "row": "Row_cr_1" }
+    },
+    {
+      "label": "Review reason",
+      "type": "textfield",
+      "id": "Field_cr_reason",
+      "key": "preScreening.reason",
+      "readonly": true,
+      "layout": { "row": "Row_cr_2" }
+    },
+    {
+      "label": "Compliance decision",
+      "type": "radio",
+      "id": "Field_cr_decision",
+      "key": "complianceDecision",
+      "values": [
+        { "label": "Cleared — proceed", "value": "CLEARED" },
+        { "label": "Declined", "value": "DECLINED" }
+      ],
+      "validate": { "required": true },
+      "layout": { "row": "Row_cr_3" }
+    },
+    {
+      "label": "Notes",
+      "type": "textarea",
+      "id": "Field_cr_notes",
+      "key": "complianceNotes",
+      "layout": { "row": "Row_cr_4" }
+    }
+  ],
+  "type": "default",
+  "id": "compliance_review_form",
+  "executionPlatform": "Camunda Cloud",
+  "executionPlatformVersion": "8.10.0",
+  "exporter": { "name": "Camunda Modeler", "version": "5.52.0" },
+  "schemaVersion": 18
+}

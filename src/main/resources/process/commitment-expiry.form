@@ -1,0 +1,62 @@
+{
+  "components": [
+    {
+      "type": "text",
+      "id": "Field_commitment_expiry_form_T",
+      "text": "## Commitment letter expired (14 days unsigned)\nDecide whether to issue a new commitment letter or withdraw the offer.",
+      "layout": {
+        "row": "Row_1"
+      }
+    },
+    {
+      "type": "textfield",
+      "id": "Field_commitment_expiry_form_X1",
+      "key": "commitmentLetterId",
+      "label": "Expired commitment letter",
+      "readonly": true,
+      "layout": {
+        "row": "Row_2"
+      }
+    },
+    {
+      "type": "radio",
+      "id": "Field_commitment_expiry_form_X2",
+      "key": "commitmentExpiryDecision",
+      "label": "Decision",
+      "values": [
+        {
+          "value": "EXTEND",
+          "label": "Extend — reissue commitment letter"
+        },
+        {
+          "value": "WITHDRAW",
+          "label": "Withdraw offer and cancel"
+        }
+      ],
+      "validate": {
+        "required": true
+      },
+      "layout": {
+        "row": "Row_3"
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "Field_commitment_expiry_form_X3",
+      "key": "commitmentExpiryNotes",
+      "label": "Notes",
+      "layout": {
+        "row": "Row_4"
+      }
+    }
+  ],
+  "type": "default",
+  "executionPlatform": "Camunda Cloud",
+  "executionPlatformVersion": "8.10.0",
+  "exporter": {
+    "name": "Camunda Modeler",
+    "version": "5.52.0"
+  },
+  "schemaVersion": 18,
+  "id": "commitment_expiry_form"
+}

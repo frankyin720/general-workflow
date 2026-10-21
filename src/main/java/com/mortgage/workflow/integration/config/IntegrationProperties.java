@@ -3,7 +3,7 @@ package com.mortgage.workflow.integration.config;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-@ConfigurationProperties(prefix = "mortgage-workflow.integration")
+@ConfigurationProperties(prefix = "application-workflow.integration")
 public record IntegrationProperties(Kafka kafka, Idempotency idempotency) {
 
 	public record Kafka(

@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/" xmlns:dc="http://www.omg.org/spec/DMN/20180521/DC/" xmlns:di="http://www.omg.org/spec/DMN/20180521/DI/" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_pre_screening" name="Pre-screening eligibility" namespace="http://camunda.org/schema/1.0/dmn" exporter="Camunda Modeler" exporterVersion="5.52.0" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.10.0">
+  <decision id="pre_screening_eligibility" name="Pre-screening eligibility">
+    <informationRequirement id="InfoReq_preScreening_creditScore">
+      <requiredInput href="#Input_preScreening_creditScore" />
+    </informationRequirement>
+    <informationRequirement id="InfoReq_preScreening_creditOutcome">
+      <requiredInput href="#Input_preScreening_creditOutcome" />
+    </informationRequirement>
+    <informationRequirement id="InfoReq_preScreening_amlOutcome">
+      <requiredInput href="#Input_preScreening_amlOutcome" />
+    </informationRequirement>
+    <decisionTable id="DecisionTable_pre_screening" hitPolicy="FIRST">
+      <input id="In_creditOutcome" label="Credit bureau outcome">
+        <inputExpression id="InExpr_creditOutcome" typeRef="string">
+          <text>creditCheckOutcome</text>
+        </inputExpression>
+        <inputValues id="InVals_creditOutcome">
+          <text>"COMPLETED","TIMEOUT","HARD_DECLINE"</text>
+        </inputValues>
+      </input>
+      <input id="In_creditScore" label="Credit score">
+        <inputExpression id="InExpr_creditScore" typeRef="number">
+          <text>creditScore</text>
+        </inputExpression>
+      </input>
+      <input id="In_amlOutcome" label="AML / KYC outcome">
+        <inputExpression id="InExpr_amlOutcome" typeRef="string">
+          <text>amlOutcome</text>
+        </inputExpression>
+        <inputValues id="InVals_amlOutcome">
+          <text>"CLEAR","HIT","TIMEOUT"</text>
+        </inputValues>
+      </input>
+      <output id="Out_eligibility" label="Eligibility" name="eligibility" typeRef="string">
+        <outputValues id="OutVals_eligibility">
+          <text>"PROCEED","MANUAL_REVIEW","DECLINE"</text>
+        </outputValues>
+      </output>
+      <output id="Out_eligibilityReason" label="Reason" name="reason" typeRef="string" />
+      <rule id="Rule_ps_hardDecline">
+        <description>Bureau reported bankruptcy / consumer proposal / fraud flag</description>
+        <inputEntry id="Rule_ps_hardDecline_1"><text>"HARD_DECLINE"</text></inputEntry>
+        <inputEntry id="Rule_ps_hardDecline_2"><text>-</text></inputEntry>
+        <inputEntry id="Rule_ps_hardDecline_3"><text>-</text></inputEntry>
+        <outputEntry id="Rule_ps_hardDecline_o1"><text>"DECLINE"</text></outputEntry>
+        <outputEntry id="Rule_ps_hardDecline_o2"><text>"Credit bureau hard decline"</text></outputEntry>
+      </rule>
+      <rule id="Rule_ps_lowScore">
+        <inputEntry id="Rule_ps_lowScore_1"><text>"COMPLETED"</text></inputEntry>
+        <inputEntry id="Rule_ps_lowScore_2"><text>&lt; 500</text></inputEntry>
+        <inputEntry id="Rule_ps_lowScore_3"><text>-</text></inputEntry>
+        <outputEntry id="Rule_ps_lowScore_o1"><text>"DECLINE"</text></outputEntry>
+        <outputEntry id="Rule_ps_lowScore_o2"><text>"Credit score below minimum (500)"</text></outputEntry>
+      </rule>
+      <rule id="Rule_ps_amlHit">
+        <description>Sanctions / PEP / adverse media hit must be cleared by Compliance</description>
+        <inputEntry id="Rule_ps_amlHit_1"><text>-</text></inputEntry>
+        <inputEntry id="Rule_ps_amlHit_2"><text>-</text></inputEntry>
+        <inputEntry id="Rule_ps_amlHit_3"><text>"HIT"</text></inputEntry>
+        <outputEntry id="Rule_ps_amlHit_o1"><text>"MANUAL_REVIEW"</text></outputEntry>
+        <outputEntry id="Rule_ps_amlHit_o2"><text>"AML / KYC screening hit"</text></outputEntry>
+      </rule>
+      <rule id="Rule_ps_timeouts">
+        <description>Any screening timed out — compliance verifies manually</description>
+        <inputEntry id="Rule_ps_timeouts_1"><text>"TIMEOUT"</text></inputEntry>
+        <inputEntry id="Rule_ps_timeouts_2"><text>-</text></inputEntry>
+        <inputEntry id="Rule_ps_timeouts_3"><text>-</text></inputEntry>
+        <outputEntry id="Rule_ps_timeouts_o1"><text>"MANUAL_REVIEW"</text></outputEntry>
+        <outputEntry id="Rule_ps_timeouts_o2"><text>"Credit bureau response timed out"</text></outputEntry>
+      </rule>
+      <rule id="Rule_ps_amlTimeout">
+        <inputEntry id="Rule_ps_amlTimeout_1"><text>-</text></inputEntry>
+        <inputEntry id="Rule_ps_amlTimeout_2"><text>-</text></inputEntry>
+        <inputEntry id="Rule_ps_amlTimeout_3"><text>"TIMEOUT"</text></inputEntry>
+        <outputEntry id="Rule_ps_amlTimeout_o1"><text>"MANUAL_REVIEW"</text></outputEntry>
+        <outputEntry id="Rule_ps_amlTimeout_o2"><text>"AML / KYC screening timed out"</text></outputEntry>
+      </rule>
+      <rule id="Rule_ps_thinFile">
+        <inputEntry id="Rule_ps_thinFile_1"><text>"COMPLETED"</text></inputEntry>
+        <inputEntry id="Rule_ps_thinFile_2"><text>[500..600)</text></inputEntry>
+        <inputEntry id="Rule_ps_thinFile_3"><text>"CLEAR"</text></inputEntry>
+        <outputEntry id="Rule_ps_thinFile_o1"><text>"MANUAL_REVIEW"</text></outputEntry>
+        <outputEntry id="Rule_ps_thinFile_o2"><text>"Credit score 500–599 requires exception review"</text></outputEntry>
+      </rule>
+      <rule id="Rule_ps_proceed">
+        <inputEntry id="Rule_ps_proceed_1"><text>"COMPLETED"</text></inputEntry>
+        <inputEntry id="Rule_ps_proceed_2"><text>&gt;= 600</text></inputEntry>
+        <inputEntry id="Rule_ps_proceed_3"><text>"CLEAR"</text></inputEntry>
+        <outputEntry id="Rule_ps_proceed_o1"><text>"PROCEED"</text></outputEntry>
+        <outputEntry id="Rule_ps_proceed_o2"><text>"Credit and AML / KYC clear"</text></outputEntry>
+      </rule>
+      <rule id="Rule_ps_fallback">
+        <description>Anything unexpected goes to a human</description>
+        <inputEntry id="Rule_ps_fallback_1"><text>-</text></inputEntry>
+        <inputEntry id="Rule_ps_fallback_2"><text>-</text></inputEntry>
+        <inputEntry id="Rule_ps_fallback_3"><text>-</text></inputEntry>
+        <outputEntry id="Rule_ps_fallback_o1"><text>"MANUAL_REVIEW"</text></outputEntry>
+        <outputEntry id="Rule_ps_fallback_o2"><text>"Incomplete screening data"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+  <inputData id="Input_preScreening_creditScore" name="creditScore" />
+  <inputData id="Input_preScreening_creditOutcome" name="creditCheckOutcome" />
+  <inputData id="Input_preScreening_amlOutcome" name="amlOutcome" />
+  <dmndi:DMNDI>
+    <dmndi:DMNDiagram id="DMNDiagram_pre_screening">
+      <dmndi:DMNShape id="DMNShape_pre_screening" dmnElementRef="pre_screening_eligibility">
+        <dc:Bounds height="80" width="180" x="260" y="80" />
+      </dmndi:DMNShape>
+      <dmndi:DMNShape id="DMNShape_in_creditScore" dmnElementRef="Input_preScreening_creditScore">
+        <dc:Bounds height="45" width="125" x="80" y="240" />
+      </dmndi:DMNShape>
+      <dmndi:DMNShape id="DMNShape_in_creditOutcome" dmnElementRef="Input_preScreening_creditOutcome">
+        <dc:Bounds height="45" width="125" x="290" y="240" />
+      </dmndi:DMNShape>
+      <dmndi:DMNShape id="DMNShape_in_amlOutcome" dmnElementRef="Input_preScreening_amlOutcome">
+        <dc:Bounds height="45" width="125" x="500" y="240" />
+      </dmndi:DMNShape>
+      <dmndi:DMNEdge id="DMNEdge_ps_1" dmnElementRef="InfoReq_preScreening_creditScore">
+        <di:waypoint x="143" y="240" />
+        <di:waypoint x="320" y="160" />
+      </dmndi:DMNEdge>
+      <dmndi:DMNEdge id="DMNEdge_ps_2" dmnElementRef="InfoReq_preScreening_creditOutcome">
+        <di:waypoint x="353" y="240" />
+        <di:waypoint x="350" y="160" />
+      </dmndi:DMNEdge>
+      <dmndi:DMNEdge id="DMNEdge_ps_3" dmnElementRef="InfoReq_preScreening_amlOutcome">
+        <di:waypoint x="563" y="240" />
+        <di:waypoint x="380" y="160" />
+      </dmndi:DMNEdge>
+    </dmndi:DMNDiagram>
+  </dmndi:DMNDI>
+</definitions>

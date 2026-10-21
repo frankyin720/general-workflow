@@ -22,7 +22,7 @@ public class WorkflowExceptionHandler {
 		detail.setTitle("Camunda request failed");
 		String message = exception.getMessage();
 		if (code == 404) {
-			message = message + " (Is mortgage-workflow deployed? Start c8run and restart map.)";
+			message = message + " (Is application-workflow deployed? Start c8run and restart map.)";
 		} else if (code == 503 || code == 502) {
 			message = message + " (Is Camunda reachable at camunda.client.grpc-address / rest-address?)";
 		}

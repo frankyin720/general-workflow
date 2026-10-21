@@ -224,6 +224,21 @@ main {
   text-decoration: line-through;
 }
 
+.pipeline li.failed {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.form-row.inline {
+  align-items: center;
+}
+
+.btn.ghost.danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
 .role-hint {
   margin-top: 1rem;
   padding: 0.75rem;

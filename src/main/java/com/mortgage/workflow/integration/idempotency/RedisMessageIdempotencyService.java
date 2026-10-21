@@ -9,7 +9,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 @Service
-@ConditionalOnProperty(prefix = "mortgage-workflow.integration.idempotency", name = "enabled", havingValue = "true")
+@ConditionalOnProperty(prefix = "application-workflow.integration.idempotency", name = "enabled", havingValue = "true")
 public class RedisMessageIdempotencyService implements MessageIdempotencyService {
 
 	private static final Logger log = LoggerFactory.getLogger(RedisMessageIdempotencyService.class);

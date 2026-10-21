@@ -6,6 +6,6 @@ import org.springframework.kafka.annotation.EnableKafka;
 
 @Configuration
 @EnableKafka
-@ConditionalOnProperty(prefix = "mortgage-workflow.integration.kafka", name = "enabled", havingValue = "true")
+@ConditionalOnProperty(prefix = "application-workflow.integration.kafka", name = "enabled", havingValue = "true")
 public class WorkflowKafkaIntegrationConfiguration {
 }

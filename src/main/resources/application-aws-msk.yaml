@@ -7,7 +7,7 @@ spring:
       sasl.jaas.config: software.amazon.msk.auth.iam.IAMLoginModule required;
       sasl.client.callback.handler.class: software.amazon.msk.auth.iam.IAMClientCallbackHandler
 
-mortgage-workflow:
+application-workflow:
   integration:
     kafka:
       enabled: true
