@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/" xmlns:dc="http://www.omg.org/spec/DMN/20180521/DC/" xmlns:biodi="http://bpmn.io/schema/dmn/biodi/2.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_automated_risk_assessment" name="Automated Risk Assessment" namespace="http://camunda.org/schema/1.0/dmn" exporter="Camunda Modeler" exporterVersion="5.52.0" modeler:executionPlatform="Camunda Cloud" modeler:executionPlatformVersion="8.10.0">
+  <decision id="automated_risk_assessment" name="Automated Risk Assessment">
+    <decisionTable id="DecisionTable_automated_risk_assessment" hitPolicy="FIRST">
+      <input id="Input_creditScore" label="Credit Score" biodi:width="192">
+        <inputExpression id="InputExpression_creditScore" typeRef="number">
+          <text>creditScore</text>
+        </inputExpression>
+      </input>
+      <input id="Input_edocsVerified" label="eDocs Verified" biodi:width="192">
+        <inputExpression id="InputExpression_edocsVerified" typeRef="boolean">
+          <text>edocsVerified</text>
+        </inputExpression>
+      </input>
+      <input id="Input_amlClear" label="AML Clear" biodi:width="192">
+        <inputExpression id="InputExpression_amlClear" typeRef="boolean">
+          <text>amlClear</text>
+        </inputExpression>
+      </input>
+      <output id="Output_riskDecision" label="Risk Decision" name="riskDecision" typeRef="string" biodi:width="192">
+        <outputValues id="OutputValues_riskDecision">
+          <text>"AUTO_APPROVE","MANUAL_REVIEW"</text>
+        </outputValues>
+      </output>
+      <rule id="DecisionRule_autoApprove">
+        <description>High score, documents verified, AML clear</description>
+        <inputEntry id="InputEntry_autoApprove_score">
+          <text><![CDATA[>= 700]]></text>
+        </inputEntry>
+        <inputEntry id="InputEntry_autoApprove_edocs">
+          <text>true</text>
+        </inputEntry>
+        <inputEntry id="InputEntry_autoApprove_aml">
+          <text>true</text>
+        </inputEntry>
+        <outputEntry id="OutputEntry_autoApprove">
+          <text>"AUTO_APPROVE"</text>
+        </outputEntry>
+      </rule>
+      <rule id="DecisionRule_manualReview">
+        <description>Default to manual underwriting review</description>
+        <inputEntry id="InputEntry_manual_score">
+          <text>-</text>
+        </inputEntry>
+        <inputEntry id="InputEntry_manual_edocs">
+          <text>-</text>
+        </inputEntry>
+        <inputEntry id="InputEntry_manual_aml">
+          <text>-</text>
+        </inputEntry>
+        <outputEntry id="OutputEntry_manual">
+          <text>"MANUAL_REVIEW"</text>
+        </outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+  <dmndi:DMNDI>
+    <dmndi:DMNDiagram id="DMNDiagram_automated_risk_assessment">
+      <dmndi:DMNShape id="DMNShape_automated_risk_assessment" dmnElementRef="automated_risk_assessment">
+        <dc:Bounds height="80" width="180" x="160" y="100" />
+      </dmndi:DMNShape>
+    </dmndi:DMNDiagram>
+  </dmndi:DMNDI>
+</definitions>

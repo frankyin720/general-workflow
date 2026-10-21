@@ -1,0 +1,606 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "name": "mortgage-workflow + Camunda 8 (local)",
+    "description": "REST calls for the mortgage-workflow Spring app (port 8081) and Camunda Orchestration Cluster API (port 8080).\n\n**Local defaults:** c8run on 8080, `./mvnw spring-boot:run` on 8081.\n\n**mortgage-workflow process message names:** `eDocUploadedEvent`, `eSignCompletedEvent` — correlation key = process variable `applicationId` (same as startup `applicationId` / businessId).\n\n**Kafka / MSK integration (topics, payloads, env vars, flow diagram):** see repo `docs/kafka-camunda-integration.md`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "camundaBaseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "mortgageWorkflowBaseUrl",
+      "value": "http://localhost:8081"
+    },
+    {
+      "key": "applicationId",
+      "value": "app-demo-001"
+    },
+    {
+      "key": "applicationType",
+      "value": "MORTGAGE"
+    },
+    {
+      "key": "processInstanceKey",
+      "value": ""
+    },
+    {
+      "key": "userTaskKey",
+      "value": ""
+    },
+    {
+      "key": "bpmnProcessId",
+      "value": "mortgage-workflow"
+    }
+  ],
+  "item": [
+    {
+      "name": "Mortgage Workflow — Application API",
+      "description": "Workflow helper API exposed by mortgage-workflow (`WorkflowController`).",
+      "item": [
+        {
+          "name": "Start mortgage application process process",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  if (body.processInstanceKey) {",
+                  "    pm.collectionVariables.set('processInstanceKey', String(body.processInstanceKey));",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"applicationId\": \"{{applicationId}}\",\n  \"applicationType\": \"{{applicationType}}\",\n  \"integrationScenario\": \"\"\n}"
+            },
+            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/processes/mortgage_workflow/instances",
+            "description": "Starts `mortgage-workflow` with businessId and variables `applicationId`, `applicationType`."
+          }
+        },
+        {
+          "name": "List open user tasks",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const tasks = pm.response.json();",
+                  "  if (Array.isArray(tasks) && tasks.length > 0 && tasks[0].userTaskKey) {",
+                  "    pm.collectionVariables.set('userTaskKey', String(tasks[0].userTaskKey));",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{mortgageWorkflowBaseUrl}}/api/workflow/user-tasks?assignee=",
+              "host": ["{{mortgageWorkflowBaseUrl}}"],
+              "path": ["api", "workflow", "user-tasks"],
+              "query": [
+                {
+                  "key": "assignee",
+                  "value": "",
+                  "description": "Optional; omit or leave empty for all CREATED tasks"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Complete user task (approve manual review)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"variables\": {\n    \"underwritingDecision\": \"APPROVED\"\n  }\n}"
+            },
+            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/user-tasks/{{userTaskKey}}/completion",
+            "description": "Set `userTaskKey` from list response. Reject path: `underwritingDecision`: `REJECTED`, add `rejectionReason`."
+          }
+        },
+        {
+          "name": "Complete user task (reject manual review)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"variables\": {\n    \"underwritingDecision\": \"REJECTED\",\n    \"rejectionReason\": \"Insufficient income documentation\"\n  }\n}"
+            },
+            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/user-tasks/{{userTaskKey}}/completion"
+          }
+        },
+        {
+          "name": "Correlate eDoc uploaded",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"applicationId\": \"{{applicationId}}\"\n}"
+            },
+            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/messages/edoc-uploaded",
+            "description": "Unblocks `Event_waitEdocUpload` when instance is waiting."
+          }
+        },
+        {
+          "name": "Correlate eSign completed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"applicationId\": \"{{applicationId}}\"\n}"
+            },
+            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/messages/esign-completed",
+            "description": "Unblocks `Event_waitEsignCompleted` (Operate shows Waiting on eSign)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Camunda — Cluster",
+      "item": [
+        {
+          "name": "Topology",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{camundaBaseUrl}}/v2/topology"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Camunda — Deployments",
+      "item": [
+        {
+          "name": "Deploy process resources (multipart)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "resources",
+                  "type": "file",
+                  "src": [],
+                  "description": "Add: mortgage-workflow.bpmn, automated-risk-assessment.dmn, manual-underwriting-review.form from src/main/resources/process/"
+                }
+              ]
+            },
+            "url": "{{camundaBaseUrl}}/v2/deployments",
+            "description": "In Postman, attach each file under the same `resources` key (multiple files)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Camunda — Process instances",
+      "item": [
+        {
+          "name": "Create process instance (direct)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  if (body.processInstanceKey) {",
+                  "    pm.collectionVariables.set('processInstanceKey', String(body.processInstanceKey));",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"processDefinitionId\": \"{{bpmnProcessId}}\",\n  \"businessId\": \"{{applicationId}}\",\n  \"variables\": {\n    \"applicationId\": \"{{applicationId}}\",\n    \"applicationType\": \"{{applicationType}}\"\n  }\n}"
+            },
+            "url": "{{camundaBaseUrl}}/v2/process-instances",
+            "description": "Bypasses mortgage-workflow; variables must be flat JSON strings (not `{ \"value\": ... }` wrappers)."
+          }
+        },
+        {
+          "name": "Get process instance",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{camundaBaseUrl}}/v2/process-instances/{{processInstanceKey}}"
+          }
+        },
+        {
+          "name": "Search process instances",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filter\": {\n    \"processDefinitionId\": \"{{bpmnProcessId}}\",\n    \"state\": \"ACTIVE\"\n  },\n  \"page\": {\n    \"limit\": 20\n  }\n}"
+            },
+            "url": "{{camundaBaseUrl}}/v2/process-instances/search"
+          }
+        },
+        {
+          "name": "Search by businessId",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filter\": {\n    \"businessId\": \"{{applicationId}}\"\n  },\n  \"page\": {\n    \"limit\": 5\n  }\n}"
+            },
+            "url": "{{camundaBaseUrl}}/v2/process-instances/search"
+          }
+        },
+        {
+          "name": "Cancel process instance",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": "{{camundaBaseUrl}}/v2/process-instances/{{processInstanceKey}}/cancellation"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Camunda — Messages",
+      "item": [
+        {
+          "name": "Correlate message (eDoc)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"eDocUploadedEvent\",\n  \"correlationKey\": \"{{applicationId}}\"\n}"
+            },
+            "url": "{{camundaBaseUrl}}/v2/messages/correlation",
+            "description": "Synchronous; returns 404 if no subscription. Match Operate wait-state message name and correlation key."
+          }
+        },
+        {
+          "name": "Correlate message (eSign)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"eSignCompletedEvent\",\n  \"correlationKey\": \"{{applicationId}}\"\n}"
+            },
+            "url": "{{camundaBaseUrl}}/v2/messages/correlation"
+          }
+        },
+        {
+          "name": "Publish message (buffered)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"eSignCompletedEvent\",\n  \"correlationKey\": \"{{applicationId}}\",\n  \"timeToLive\": 600000\n}"
+            },
+            "url": "{{camundaBaseUrl}}/v2/messages/publication",
+            "description": "Fire-and-forget; can buffer until subscription opens. Prefer `/correlation` when instance is already waiting."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Camunda — Inspect instance",
+      "item": [
+        {
+          "name": "Search variables",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filter\": {\n    \"processInstanceKey\": \"{{processInstanceKey}}\"\n  },\n  \"page\": {\n    \"limit\": 50\n  }\n}"
+            },
+            "url": "{{camundaBaseUrl}}/v2/variables/search"
+          }
+        },
+        {
+          "name": "Search element instances (active catch events)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filter\": {\n    \"processInstanceKey\": \"{{processInstanceKey}}\",\n    \"state\": \"ACTIVE\"\n  },\n  \"page\": {\n    \"limit\": 20\n  }\n}"
+            },
+            "url": "{{camundaBaseUrl}}/v2/element-instances/search"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Camunda — User tasks (native v2)",
+      "description": "Direct Orchestration Cluster user-task API (Tasklist uses the same backend).",
+      "item": [
+        {
+          "name": "Search user tasks",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const data = pm.response.json();",
+                  "  const items = data.items || [];",
+                  "  if (items.length > 0 && items[0].userTaskKey) {",
+                  "    pm.collectionVariables.set('userTaskKey', String(items[0].userTaskKey));",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filter\": {\n    \"state\": \"CREATED\",\n    \"processInstanceKey\": \"{{processInstanceKey}}\"\n  },\n  \"page\": {\n    \"limit\": 20\n  }\n}"
+            },
+            "url": "{{camundaBaseUrl}}/v2/user-tasks/search"
+          }
+        },
+        {
+          "name": "Get user task",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{camundaBaseUrl}}/v2/user-tasks/{{userTaskKey}}"
+          }
+        },
+        {
+          "name": "Assign user task",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"assignee\": \"underwriter.demo\"\n}"
+            },
+            "url": "{{camundaBaseUrl}}/v2/user-tasks/{{userTaskKey}}/assignment"
+          }
+        },
+        {
+          "name": "Complete user task (Camunda API)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"variables\": {\n    \"underwritingDecision\": \"APPROVED\"\n  }\n}"
+            },
+            "url": "{{camundaBaseUrl}}/v2/user-tasks/{{userTaskKey}}/completion"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Mortgage Workflow — Happy path (run in order)",
+      "description": "Requires mortgage-workflow running (workers). Set a unique `applicationId` in collection variables first.",
+      "item": [
+        {
+          "name": "1 Start mortgage application process",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"applicationId\": \"{{applicationId}}\",\n  \"applicationType\": \"{{applicationType}}\",\n  \"integrationScenario\": \"\"\n}"
+            },
+            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/processes/mortgage_workflow/instances"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('started', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('processInstanceKey', String(body.processInstanceKey));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "2 Correlate eDoc",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"applicationId\": \"{{applicationId}}\"\n}"
+            },
+            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/messages/edoc-uploaded"
+          }
+        },
+        {
+          "name": "3 Correlate eSign",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"applicationId\": \"{{applicationId}}\"\n}"
+            },
+            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/messages/esign-completed"
+          }
+        },
+        {
+          "name": "4 Verify instance completed",
+          "request": {
+            "method": "GET",
+            "url": "{{camundaBaseUrl}}/v2/process-instances/{{processInstanceKey}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('state is COMPLETED (may need retry after workers)', () => {",
+                  "  pm.expect(['COMPLETED', 'ACTIVE']).to.include(body.state);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

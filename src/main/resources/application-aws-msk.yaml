@@ -1,0 +1,15 @@
+# Profile: aws-msk — Amazon MSK + ElastiCache Redis
+spring:
+  kafka:
+    properties:
+      security.protocol: SASL_SSL
+      sasl.mechanism: AWS_MSK_IAM
+      sasl.jaas.config: software.amazon.msk.auth.iam.IAMLoginModule required;
+      sasl.client.callback.handler.class: software.amazon.msk.auth.iam.IAMClientCallbackHandler
+
+mortgage-workflow:
+  integration:
+    kafka:
+      enabled: true
+    idempotency:
+      enabled: true

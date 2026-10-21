@@ -1,0 +1,53 @@
+{
+  "components": [
+    {
+      "text": "Review application details and record the underwriting outcome.",
+      "label": "Instructions",
+      "type": "text",
+      "id": "Field_instructions",
+      "layout": {
+        "row": "Row_instructions"
+      }
+    },
+    {
+      "label": "Underwriting decision",
+      "type": "radio",
+      "id": "Field_underwritingDecision",
+      "key": "underwritingDecision",
+      "values": [
+        {
+          "label": "Approve",
+          "value": "APPROVED"
+        },
+        {
+          "label": "Reject",
+          "value": "REJECTED"
+        }
+      ],
+      "validate": {
+        "required": true
+      },
+      "layout": {
+        "row": "Row_decision"
+      }
+    },
+    {
+      "label": "Rejection reason",
+      "type": "textarea",
+      "id": "Field_rejectionReason",
+      "key": "rejectionReason",
+      "layout": {
+        "row": "Row_reason"
+      }
+    }
+  ],
+  "type": "default",
+  "id": "manual_underwriting_review_form",
+  "executionPlatform": "Camunda Cloud",
+  "executionPlatformVersion": "8.10.0",
+  "exporter": {
+    "name": "Camunda Modeler",
+    "version": "5.52.0"
+  },
+  "schemaVersion": 18
+}

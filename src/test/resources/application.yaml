@@ -1,0 +1,18 @@
+camunda:
+  client:
+    enabled: false
+
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+
+mortgage-workflow:
+  demo:
+    enabled: false
+  integration:
+    kafka:
+      enabled: false
+    idempotency:
+      enabled: false

@@ -1,0 +1,55 @@
+server:
+  port: ${SERVER_PORT:8081}
+
+spring:
+  application:
+    name: mortgage-workflow
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP:mortgage-workflow}
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: record
+      missing-topics-fatal: false
+    # AWS MSK (IAM) example — activate with SPRING_PROFILES_ACTIVE=aws-msk
+    # properties:
+    #   security.protocol: SASL_SSL
+    #   sasl.mechanism: AWS_MSK_IAM
+    #   sasl.jaas.config: software.amazon.msk.auth.iam.IAMLoginModule required;
+    #   sasl.client.callback.handler.class: software.amazon.msk.auth.iam.IAMClientCallbackHandler
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
+camunda:
+  client:
+    mode: self-managed
+    auth:
+      method: none
+    grpc-address: ${CAMUNDA_GRPC_ADDRESS:http://localhost:26500}
+    rest-address: ${CAMUNDA_REST_ADDRESS:http://localhost:8080}
+    worker:
+      defaults:
+        name: mortgage-workflow-worker
+        max-jobs-active: 32
+
+mortgage-workflow:
+  demo:
+    enabled: ${DEMO_PORTAL_ENABLED:true}
+    conductor-mode: ${DEMO_CONDUCTOR_MODE:true}
+  integration:
+    kafka:
+      enabled: ${KAFKA_INTEGRATION_ENABLED:false}
+      topics:
+        edoc-uploaded: ${KAFKA_TOPIC_EDOC_UPLOADED:edoc.uploaded}
+        esign-completed: ${KAFKA_TOPIC_ESIGN_COMPLETED:esign.completed}
+    idempotency:
+      enabled: ${REDIS_IDEMPOTENCY_ENABLED:false}
+      ttl: ${IDEMPOTENCY_TTL:PT24H}
+      key-prefix: ${IDEMPOTENCY_KEY_PREFIX:idempotency:}
