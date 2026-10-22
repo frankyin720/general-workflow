@@ -11,7 +11,7 @@
       "value": "http://localhost:8080"
     },
     {
-      "key": "mortgageWorkflowBaseUrl",
+      "key": "generalWorkflowBaseUrl",
       "value": "http://localhost:8081"
     },
     {
@@ -20,7 +20,7 @@
     },
     {
       "key": "applicationType",
-      "value": "MORTGAGE"
+      "value": "General"
     },
     {
       "key": "processInstanceKey",
@@ -37,11 +37,11 @@
   ],
   "item": [
     {
-      "name": "Mortgage Workflow — Application API",
+      "name": "General Workflow — Application API",
       "description": "Workflow helper API exposed by application-workflow (`WorkflowController`).",
       "item": [
         {
-          "name": "Start mortgage application process process",
+          "name": "Start General Workflow process process",
           "event": [
             {
               "listen": "test",
@@ -70,7 +70,7 @@
               "mode": "raw",
               "raw": "{\n  \"applicationId\": \"{{applicationId}}\",\n  \"applicationType\": \"{{applicationType}}\",\n  \"integrationScenario\": \"\"\n}"
             },
-            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/processes/mortgage_workflow/instances",
+            "url": "{{generalWorkflowBaseUrl}}/api/workflow/processes/general_workflow/instances",
             "description": "Starts `application-workflow` with businessId and variables `applicationId`, `applicationType`."
           }
         },
@@ -95,8 +95,8 @@
           "request": {
             "method": "GET",
             "url": {
-              "raw": "{{mortgageWorkflowBaseUrl}}/api/workflow/user-tasks?assignee=",
-              "host": ["{{mortgageWorkflowBaseUrl}}"],
+              "raw": "{{generalWorkflowBaseUrl}}/api/workflow/user-tasks?assignee=",
+              "host": ["{{generalWorkflowBaseUrl}}"],
               "path": ["api", "workflow", "user-tasks"],
               "query": [
                 {
@@ -122,7 +122,7 @@
               "mode": "raw",
               "raw": "{\n  \"variables\": {\n    \"underwritingDecision\": \"APPROVED\"\n  }\n}"
             },
-            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/user-tasks/{{userTaskKey}}/completion",
+            "url": "{{generalWorkflowBaseUrl}}/api/workflow/user-tasks/{{userTaskKey}}/completion",
             "description": "Set `userTaskKey` from list response. Reject path: `underwritingDecision`: `REJECTED`, add `rejectionReason`."
           }
         },
@@ -140,7 +140,7 @@
               "mode": "raw",
               "raw": "{\n  \"variables\": {\n    \"underwritingDecision\": \"REJECTED\",\n    \"rejectionReason\": \"Insufficient income documentation\"\n  }\n}"
             },
-            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/user-tasks/{{userTaskKey}}/completion"
+            "url": "{{generalWorkflowBaseUrl}}/api/workflow/user-tasks/{{userTaskKey}}/completion"
           }
         },
         {
@@ -157,7 +157,7 @@
               "mode": "raw",
               "raw": "{\n  \"applicationId\": \"{{applicationId}}\"\n}"
             },
-            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/messages/edoc-uploaded",
+            "url": "{{generalWorkflowBaseUrl}}/api/workflow/messages/edoc-uploaded",
             "description": "Unblocks `Event_waitEdocUpload` when instance is waiting."
           }
         },
@@ -175,7 +175,7 @@
               "mode": "raw",
               "raw": "{\n  \"applicationId\": \"{{applicationId}}\"\n}"
             },
-            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/messages/esign-completed",
+            "url": "{{generalWorkflowBaseUrl}}/api/workflow/messages/esign-completed",
             "description": "Unblocks `Event_waitEsignCompleted` (Operate shows Waiting on eSign)."
           }
         }
@@ -214,7 +214,7 @@
                   "key": "resources",
                   "type": "file",
                   "src": [],
-                  "description": "Add: application-workflow.bpmn, automated-risk-assessment.dmn, manual-underwriting-review.form from src/main/resources/process/"
+                  "description": "Add: general-workflow.bpmn, automated-risk-assessment.dmn, manual-underwriting-review.form from src/main/resources/process/"
                 }
               ]
             },
@@ -512,11 +512,11 @@
       ]
     },
     {
-      "name": "Mortgage Workflow — Happy path (run in order)",
+      "name": "General Workflow — Happy path (run in order)",
       "description": "Requires application-workflow running (workers). Set a unique `applicationId` in collection variables first.",
       "item": [
         {
-          "name": "1 Start mortgage application process",
+          "name": "1 Start General Workflow process",
           "request": {
             "method": "POST",
             "header": [
@@ -529,7 +529,7 @@
               "mode": "raw",
               "raw": "{\n  \"applicationId\": \"{{applicationId}}\",\n  \"applicationType\": \"{{applicationType}}\",\n  \"integrationScenario\": \"\"\n}"
             },
-            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/processes/mortgage_workflow/instances"
+            "url": "{{generalWorkflowBaseUrl}}/api/workflow/processes/general_workflow/instances"
           },
           "event": [
             {
@@ -559,7 +559,7 @@
               "mode": "raw",
               "raw": "{\n  \"applicationId\": \"{{applicationId}}\"\n}"
             },
-            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/messages/edoc-uploaded"
+            "url": "{{generalWorkflowBaseUrl}}/api/workflow/messages/edoc-uploaded"
           }
         },
         {
@@ -576,7 +576,7 @@
               "mode": "raw",
               "raw": "{\n  \"applicationId\": \"{{applicationId}}\"\n}"
             },
-            "url": "{{mortgageWorkflowBaseUrl}}/api/workflow/messages/esign-completed"
+            "url": "{{generalWorkflowBaseUrl}}/api/workflow/messages/esign-completed"
           }
         },
         {

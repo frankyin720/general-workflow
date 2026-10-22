@@ -1,8 +1,8 @@
 # Application Workflow
 
-Repository directory: **`application-workflow`**.
+Repository directory: **`general-workflow`**.
 
-Camunda 8 demo for **mortgage origination** (eDocs, credit/AML, DMN risk, manual underwriting, eSign, funding).
+Camunda 8 demo for **General Workflow processing** (eDocs, credit/AML, DMN risk, manual underwriting, eSign, funding).
 
 ## Run locally
 
@@ -19,11 +19,11 @@ Camunda 8 demo for **mortgage origination** (eDocs, credit/AML, DMN risk, manual
 
 | Item | Value |
 |------|--------|
-| BPMN process id | `mortgage_workflow` |
-| Start API | `POST /api/workflow/processes/mortgage_workflow/instances` |
-| Spring app name | `application-workflow` |
-| Config prefix | `application-workflow.demo.*`, `application-workflow.integration.*` |
-| Main class | `com.mortgage.workflow.ApplicationWorkflowApplication` |
+| BPMN process id | `general_workflow` |
+| Start API | `POST /api/workflow/processes/general_workflow/instances` |
+| Spring app name | `general-workflow` |
+| Config prefix | `general-workflow.demo.*`, `general-workflow.integration.*` |
+| Main class | `com.application.workflow.ApplicationWorkflowApplication` |
 
 ## Docs
 

@@ -148,16 +148,37 @@ main {
 }
 
 .step-block {
-  border: 1px solid var(--border);
+  border: 2px solid var(--border);
   border-radius: 10px;
   padding: 1rem;
   margin-top: 0.75rem;
   background: var(--surface2);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.step-block.next-step {
+/* Workflow step border states (see data-step-state on blocks 1–6) */
+.step-block[data-step-state="pending"] {
+  border-color: var(--border);
+}
+
+.step-block[data-step-state="current"] {
+  border-color: #ffffff;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2);
+}
+
+.step-block[data-step-state="done"] {
   border-color: var(--accent2);
-  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.25);
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.2);
+}
+
+.step-block[data-step-state="failed"] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.25);
+}
+
+.step-block[data-step-state="skipped"] {
+  border-color: var(--warn);
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.25);
 }
 
 .step-block.muted-step {
@@ -331,6 +352,87 @@ main {
   background: var(--danger);
 }
 
+.checklist-builder {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0 0;
+}
+
+.checklist-builder legend {
+  padding: 0 0.35rem;
+  color: var(--muted);
+}
+
+.checklist-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1.25rem;
+}
+
+.checklist-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.doc-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+}
+
+.doc-checklist-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.75rem;
+  background: rgba(15, 20, 25, 0.35);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.doc-checklist-main {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.doc-badge {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.doc-badge.pending {
+  color: var(--warn);
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.doc-badge.verified {
+  color: var(--accent2);
+  border-color: rgba(34, 197, 94, 0.45);
+}
+
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.edoc-advanced {
+  margin-top: 0.5rem;
+}
+
 .form-row {
   display: flex;
   flex-wrap: wrap;
@@ -432,19 +534,72 @@ input, select, textarea {
   margin-bottom: 0.75rem;
 }
 
-.flash {
-  padding: 0.65rem 0.75rem;
-  border-radius: 8px;
-  margin-bottom: 0.75rem;
-  font-size: 0.9rem;
+/* Fixed toast — out of document flow (no layout shift) */
+.snackbar-host {
+  position: fixed;
+  bottom: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: stretch;
+  gap: 0.5rem;
+  pointer-events: none;
+  width: min(520px, calc(100vw - 2rem));
+  margin: 0;
+  padding: 0;
 }
 
-.flash.error {
-  background: rgba(239, 68, 68, 0.15);
+.snackbar {
+  pointer-events: auto;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  margin: 0;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+  animation: snackbar-in 0.22s ease-out;
+}
+
+.snackbar.ok {
+  background: rgba(20, 32, 26, 0.96);
+  border: 1px solid var(--accent2);
+  color: var(--text);
+}
+
+.snackbar.error {
+  background: rgba(30, 20, 22, 0.96);
+  border: 1px solid var(--danger);
+  color: var(--text);
+}
+
+@keyframes snackbar-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Inline hints inside panels (not floating toasts) */
+.status-hint {
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.status-hint.error {
+  background: rgba(239, 68, 68, 0.12);
   border: 1px solid var(--danger);
 }
 
-.flash.ok {
-  background: rgba(34, 197, 94, 0.12);
+.status-hint.ok {
+  background: rgba(34, 197, 94, 0.1);
   border: 1px solid var(--accent2);
 }

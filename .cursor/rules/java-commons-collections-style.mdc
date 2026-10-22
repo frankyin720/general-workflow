@@ -1,0 +1,37 @@
+---
+description: Java null-safe lists, Commons helpers, and collection return style
+globs: **/*.java
+alwaysApply: false
+---
+
+# Java collection and null-handling style
+
+Apply when creating or transforming lists/maps in this project.
+
+## Lists (null-safe)
+
+- Treat null lists as empty: `ListUtils.emptyIfNull(list)` (Apache Commons Collections 4).
+- Drop null elements: `.stream().filter(Objects::nonNull)`.
+- End streams with `.toList()`, not `Collectors.toCollection(ArrayList::new)`.
+- If the result must be mutated (e.g. `add`), wrap: `new ArrayList<>(ListUtils.emptyIfNull(list).stream().filter(Objects::nonNull).toList())`.
+
+## Null and empty strings
+
+- **Avoid `null` in application code** when a safe empty value exists: `new ArrayList<>()`, `new HashMap<>()`, `""` for optional strings. Do not pass `null` for “empty list” (use `new ArrayList<>()`); Camunda/read paths still normalize with `ListUtils.emptyIfNull`.
+- When a field is truly absent (e.g. optional `Integer`, unset JSON body field), null may remain at boundaries; prefer empty defaults for new call sites and DTO fallbacks.
+- Reference null checks: `Objects.isNull` / `Objects.nonNull` for non-string references (not bare `== null` unless required by API).
+- Strings: do not use `Objects.nonNull(s) && !s.isBlank()` / bare `.isBlank()`. Use `StringUtils.isBlank(s)` / `StringUtils.isNotBlank(s)` (null-safe; whitespace-only counts as empty). After explicit trim, `StringUtils.isNotBlank(trimmed)` is fine for tokens.
+- Helpers like `firstNonBlank` / `resolveDocumentType` should return `""`, not `null`, when nothing matches.
+
+## Mutable collections in application code
+
+- Prefer `new ArrayList<>()`, `new HashMap<>()` over `List.of`, `Map.of`, `Set.of`.
+
+## Returning small variable maps (e.g. Camunda worker output)
+
+- Single key: one return — `return Collections.singletonMap("completedSteps", steps);`
+- Multiple keys: `HashMap` + `put`, or build then return once if still readable.
+
+## Dependencies
+
+- Use `commons-collections4` and `commons-lang3` already on the classpath; do not reintroduce ad-hoc null-list helpers.

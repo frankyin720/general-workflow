@@ -22,10 +22,10 @@
 		<developer/>
 	</developers>
 	<scm>
-		<connection>scm:git:https://github.com/frankyin720/application-workflow.git</connection>
-		<developerConnection>scm:git:https://github.com/frankyin720/application-workflow.git</developerConnection>
+		<connection>scm:git:https://github.com/frankyin720/general-workflow.git</connection>
+		<developerConnection>scm:git:https://github.com/frankyin720/general-workflow.git</developerConnection>
 		<tag>HEAD</tag>
-		<url>https://github.com/frankyin720/application-workflow</url>
+		<url>https://github.com/frankyin720/general-workflow</url>
 	</scm>
 	<properties>
 		<java.version>21</java.version>
@@ -60,6 +60,22 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-redis</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>com.fasterxml.jackson.datatype</groupId>
+			<artifactId>jackson-datatype-jsr310</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.apache.commons</groupId>
+			<artifactId>commons-lang3</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.apache.commons</groupId>
+			<artifactId>commons-collections4</artifactId>
+			<version>4.4</version>
 		</dependency>
 
 		<dependency>
