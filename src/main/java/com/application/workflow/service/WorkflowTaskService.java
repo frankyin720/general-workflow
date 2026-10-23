@@ -1,6 +1,7 @@
 package com.application.workflow.service;
 
-import com.application.workflow.integration.camunda.CamundaMessageBridge;
+import com.application.workflow.integration.camunda.CamundaMessageProvider;
+import com.application.workflow.integration.camunda.CorrelationResult;
 import com.application.workflow.web.dto.CompleteUserTaskRequest;
 import com.application.workflow.web.dto.MessageCorrelationResponse;
 import com.application.workflow.web.dto.StartProcessRequest;
@@ -23,11 +24,11 @@ public class WorkflowTaskService {
 	public static final String MESSAGE_ESIGN_COMPLETED = "eSignCompletedEvent";
 
 	private final CamundaClient camundaClient;
-	private final CamundaMessageBridge camundaMessageBridge;
+	private final CamundaMessageProvider camundaMessageProvider;
 
-	public WorkflowTaskService(CamundaClient camundaClient, CamundaMessageBridge camundaMessageBridge) {
+	public WorkflowTaskService(CamundaClient camundaClient, CamundaMessageProvider camundaMessageProvider) {
 		this.camundaClient = camundaClient;
-		this.camundaMessageBridge = camundaMessageBridge;
+		this.camundaMessageProvider = camundaMessageProvider;
 	}
 
 	public StartProcessResponse startGeneralWorkflow(StartProcessRequest request) {
@@ -108,16 +109,25 @@ public class WorkflowTaskService {
 		if (StringUtils.isBlank(applicationId)) {
 			throw new IllegalArgumentException("applicationId is required for message correlation");
 		}
-		camundaMessageBridge.correlateOrBuffer(messageName, applicationId, variables);
-		var instance = camundaClient.newProcessInstanceSearchRequest()
-				.filter(filter -> filter.businessId(applicationId))
-				.page(p -> p.limit(1))
-				.execute()
-				.items()
-				.stream()
-				.findFirst();
-		long processInstanceKey = instance.map(i -> i.getProcessInstanceKey()).orElse(0L);
-		return new MessageCorrelationResponse(processInstanceKey, messageName, applicationId);
+		CorrelationResult correlation = camundaMessageProvider.correlateOrBuffer(messageName, applicationId, variables);
+		long processInstanceKey = correlation.processInstanceKey();
+		if (processInstanceKey <= 0L) {
+			processInstanceKey = camundaClient.newProcessInstanceSearchRequest()
+					.filter(filter -> filter.businessId(applicationId))
+					.page(p -> p.limit(1))
+					.execute()
+					.items()
+					.stream()
+					.findFirst()
+					.map(i -> i.getProcessInstanceKey())
+					.orElse(0L);
+		}
+		return new MessageCorrelationResponse(
+				processInstanceKey > 0L ? processInstanceKey : null,
+				messageName,
+				applicationId,
+				correlation.outcome().name(),
+				correlation.outcome().detailMessage());
 	}
 
 	public void completeUserTask(long userTaskKey, CompleteUserTaskRequest request) {

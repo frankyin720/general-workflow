@@ -6,6 +6,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.util.Map;
+
 @Component
 public class EscalateUnderwritingReviewWorker {
 
@@ -16,5 +18,4 @@ public class EscalateUnderwritingReviewWorker {
 		log.info("Escalating underwriting review (48h SLA) applicationId={}", applicationId);
 		// TODO: notify underwriting manager / escalation channel (REST)
 	}
-
 }

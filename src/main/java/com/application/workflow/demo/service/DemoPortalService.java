@@ -3,14 +3,19 @@ package com.application.workflow.demo.service;
 import java.util.Objects;
 import com.application.workflow.demo.auth.DemoRole;
 import com.application.workflow.demo.auth.DemoUser;
+import com.application.workflow.demo.integration.DemoIntegrationChannel;
 import com.application.workflow.demo.integration.DemoIntegrationLog;
+import com.application.workflow.demo.integration.DemoKafkaEventPublisher;
+import com.application.workflow.integration.config.IntegrationConfig;
 import com.application.workflow.demo.model.DemoApplicationStore;
 import com.application.workflow.demo.model.DemoApplicationSummary;
 import com.application.workflow.demo.model.DemoFlowProfile;
 import com.application.workflow.demo.web.dto.DemoApplicationStatusView;
 import com.application.workflow.demo.web.dto.DemoEdocUploadRequest;
+import com.application.workflow.demo.web.dto.DemoIntegrationActionResponse;
 import com.application.workflow.demo.web.dto.DemoStartApplicationRequest;
 import com.application.workflow.demo.web.dto.DemoUnderwritingDecisionRequest;
+import com.application.workflow.web.dto.MessageCorrelationResponse;
 import com.application.workflow.worker.support.DocumentChecklists;
 import com.application.workflow.worker.support.ProcessProgress;
 import com.application.workflow.service.ProcessDiagnosticsService;
@@ -32,6 +37,7 @@ import java.util.UUID;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -48,18 +54,24 @@ public class DemoPortalService {
 	private final DemoApplicationStore applicationStore;
 	private final DemoIntegrationLog integrationLog;
 	private final ProcessDiagnosticsService processDiagnosticsService;
+	private final IntegrationConfig integrationConfig;
+	private final ObjectProvider<DemoKafkaEventPublisher> kafkaEventPublisher;
 
 	public DemoPortalService(
 			WorkflowTaskService workflowTaskService,
 			ProcessInstanceQueryService processInstanceQueryService,
 			DemoApplicationStore applicationStore,
 			DemoIntegrationLog integrationLog,
-			ProcessDiagnosticsService processDiagnosticsService) {
+			ProcessDiagnosticsService processDiagnosticsService,
+			IntegrationConfig integrationConfig,
+			ObjectProvider<DemoKafkaEventPublisher> kafkaEventPublisher) {
 		this.workflowTaskService = workflowTaskService;
 		this.processInstanceQueryService = processInstanceQueryService;
 		this.applicationStore = applicationStore;
 		this.integrationLog = integrationLog;
 		this.processDiagnosticsService = processDiagnosticsService;
+		this.integrationConfig = integrationConfig;
+		this.kafkaEventPublisher = kafkaEventPublisher;
 	}
 
 	public DemoApplicationSummary startApplication(DemoUser user, DemoStartApplicationRequest request) {
@@ -99,7 +111,8 @@ public class DemoPortalService {
 		return summary;
 	}
 
-	public void simulateEdocUpload(DemoUser user, String applicationId, DemoEdocUploadRequest request) {
+	public DemoIntegrationActionResponse simulateEdocUpload(
+			DemoUser user, String applicationId, DemoEdocUploadRequest request) {
 		requireRole(user, DemoRole.ADVISOR, DemoRole.ECM_SYSTEM);
 		ensureKnownApplication(applicationId);
 		String documentId = StringUtils.isNotBlank(request.documentId())
@@ -116,29 +129,60 @@ public class DemoPortalService {
 			variables.put("documentType", request.documentType().trim());
 		}
 
-		workflowTaskService.correlateMessage(
-				WorkflowTaskService.MESSAGE_EDOC_UPLOADED, applicationId, variables);
+		DemoIntegrationChannel channel = resolveIntegrationChannel(request.integrationChannel());
+		DemoIntegrationActionResponse response;
+		if (channel == DemoIntegrationChannel.KAFKA) {
+			String topic = kafkaEventPublisher.getObject().publishEdocUploaded(
+					applicationId, documentId, request.documentType(), status);
+			response = kafkaActionResponse(
+					channel, WorkflowTaskService.MESSAGE_EDOC_UPLOADED, applicationId, topic);
+		} else {
+			MessageCorrelationResponse correlated = workflowTaskService.correlateMessage(
+					WorkflowTaskService.MESSAGE_EDOC_UPLOADED, applicationId, variables);
+			response = camundaActionResponse(channel, correlated);
+		}
 		integrationLog.record(
 				applicationId,
 				user.role() == DemoRole.ECM_SYSTEM ? "ECM (Alfresco/OnBase)" : "Advisor portal",
 				"eDocUploadedEvent",
-				"documentType="
+				channel.name()
+						+ " — "
+						+ response.outcome()
+						+ " — documentType="
 						+ (Objects.nonNull(request.documentType()) ? request.documentType() : "auto")
 						+ ", documentId="
 						+ documentId
 						+ ", status="
 						+ status);
+		return response;
 	}
 
-	public void simulateEsignComplete(DemoUser user, String applicationId) {
+	public DemoIntegrationActionResponse simulateEsignComplete(
+			DemoUser user, String applicationId, String integrationChannelRaw) {
 		requireRole(user, DemoRole.CUSTOMER);
 		ensureKnownApplication(applicationId);
-		Map<String, Object> variables = new HashMap<>();
-		variables.put("eSignEnvelopeId", "ENV-" + UUID.randomUUID().toString().substring(0, 8));
-		variables.put("eSignStatus", "COMPLETED");
-		workflowTaskService.correlateMessage(
-				WorkflowTaskService.MESSAGE_ESIGN_COMPLETED, applicationId, variables);
-		integrationLog.record(applicationId, "eSign provider", "eSignCompletedEvent", "Customer completed signing");
+		String envelopeId = "ENV-" + UUID.randomUUID().toString().substring(0, 8);
+		String eSignStatus = "COMPLETED";
+		DemoIntegrationChannel channel = resolveIntegrationChannel(integrationChannelRaw);
+		DemoIntegrationActionResponse response;
+		if (channel == DemoIntegrationChannel.KAFKA) {
+			String topic = kafkaEventPublisher.getObject().publishEsignCompleted(applicationId, envelopeId, eSignStatus);
+			response = kafkaActionResponse(
+					channel, WorkflowTaskService.MESSAGE_ESIGN_COMPLETED, applicationId, topic);
+		} else {
+			Map<String, Object> variables = new HashMap<>();
+			variables.put("eSignEnvelopeId", envelopeId);
+			variables.put("eSignStatus", eSignStatus);
+			MessageCorrelationResponse correlated = workflowTaskService.correlateMessage(
+					WorkflowTaskService.MESSAGE_ESIGN_COMPLETED, applicationId, variables);
+			response = camundaActionResponse(channel, correlated);
+		}
+		integrationLog.record(
+				applicationId,
+				"eSign provider",
+				"eSignCompletedEvent",
+				channel.name() + " — " + response.outcome() + " — Customer completed signing");
+		return response;
 	}
 
 	public List<UserTaskView> listUnderwritingTasks(DemoUser user) {
@@ -408,6 +452,50 @@ public class DemoPortalService {
 			}
 		}
 		throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Role " + user.role() + " cannot perform this action");
+	}
+
+	private static DemoIntegrationActionResponse camundaActionResponse(
+			DemoIntegrationChannel channel, MessageCorrelationResponse correlated) {
+		return new DemoIntegrationActionResponse(
+				channel.name(),
+				"CAMUNDA_" + correlated.outcome(),
+				correlated.messageName(),
+				correlated.correlationKey(),
+				correlated.processInstanceKey(),
+				correlated.outcome(),
+				correlated.detail());
+	}
+
+	private static DemoIntegrationActionResponse kafkaActionResponse(
+			DemoIntegrationChannel channel, String messageName, String applicationId, String topic) {
+		return new DemoIntegrationActionResponse(
+				channel.name(),
+				"KAFKA_PUBLISHED",
+				messageName,
+				applicationId,
+				null,
+				"PUBLISHED",
+				"Record sent to Kafka topic \"" + topic + "\". Workflow advances when the consumer correlates the message.");
+	}
+
+	private DemoIntegrationChannel resolveIntegrationChannel(String raw) {
+		DemoIntegrationChannel channel;
+		try {
+			channel = DemoIntegrationChannel.fromRequestValue(raw);
+		} catch (IllegalArgumentException exception) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage());
+		}
+		if (channel == DemoIntegrationChannel.KAFKA && !integrationConfig.kafka().enabled()) {
+			throw new ResponseStatusException(
+					HttpStatus.BAD_REQUEST,
+					"Kafka integration is disabled — set KAFKA_INTEGRATION_ENABLED=true or choose Camunda Client");
+		}
+		if (channel == DemoIntegrationChannel.KAFKA && kafkaEventPublisher.getIfAvailable() == null) {
+			throw new ResponseStatusException(
+					HttpStatus.SERVICE_UNAVAILABLE,
+					"Kafka publisher is not available — check broker and restart general-workflow");
+		}
+		return channel;
 	}
 
 	private static List<String> resolveDemoChecklist(String applicationType, List<String> requested) {

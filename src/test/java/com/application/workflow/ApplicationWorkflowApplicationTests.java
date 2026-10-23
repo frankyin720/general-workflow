@@ -1,6 +1,6 @@
 package com.application.workflow;
 
-import com.application.workflow.integration.camunda.CamundaMessageBridge;
+import com.application.workflow.integration.camunda.CamundaMessageProvider;
 import io.camunda.client.CamundaClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -13,7 +13,7 @@ class ApplicationWorkflowApplicationTests {
 	private CamundaClient camundaClient;
 
 	@MockitoBean
-	private CamundaMessageBridge camundaMessageBridge;
+	private CamundaMessageProvider camundaMessageProvider;
 
 	@Test
 	void contextLoads() {

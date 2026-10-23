@@ -6,6 +6,9 @@ spring:
     name: general-workflow
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
     consumer:
       group-id: ${KAFKA_CONSUMER_GROUP:general-workflow}
       auto-offset-reset: earliest
@@ -45,11 +48,11 @@ general-workflow:
     conductor-mode: ${DEMO_CONDUCTOR_MODE:true}
   integration:
     kafka:
-      enabled: ${KAFKA_INTEGRATION_ENABLED:false}
+      enabled: ${KAFKA_INTEGRATION_ENABLED:true}
       topics:
         edoc-uploaded: ${KAFKA_TOPIC_EDOC_UPLOADED:edoc.uploaded}
         esign-completed: ${KAFKA_TOPIC_ESIGN_COMPLETED:esign.completed}
     idempotency:
-      enabled: ${REDIS_IDEMPOTENCY_ENABLED:false}
+      enabled: ${REDIS_IDEMPOTENCY_ENABLED:true}
       ttl: ${IDEMPOTENCY_TTL:PT24H}
       key-prefix: ${IDEMPOTENCY_KEY_PREFIX:idempotency:}

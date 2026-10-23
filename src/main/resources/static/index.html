@@ -39,6 +39,23 @@
         </aside>
 
         <div class="content">
+          <div id="integrationPathPanel" class="panel integration-path" aria-label="Event delivery path">
+            <div class="panel-head compact">
+              <h2>Integration path</h2>
+              <span id="integrationPathHint" class="muted small"></span>
+            </div>
+            <fieldset class="integration-path-options">
+              <label class="integration-option">
+                <input type="radio" name="integrationChannel" value="CAMUNDA_CLIENT" checked />
+                Camunda Client
+              </label>
+              <label class="integration-option" id="integrationKafkaLabel">
+                <input type="radio" name="integrationChannel" value="KAFKA" id="integrationKafkaOption" />
+                Kafka
+              </label>
+            </fieldset>
+            <p class="muted small">Applies to eDoc upload and eSign actions. Camunda Client correlates directly; Kafka publishes to MSK topics consumed by general-workflow.</p>
+          </div>
           <div id="actionPanel" class="panel actions"></div>
           <div class="split">
             <div class="panel">

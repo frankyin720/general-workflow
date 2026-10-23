@@ -1,4 +1,5 @@
 package com.application.workflow.demo.web.dto;
 
-public record DemoEdocUploadRequest(String documentId, String documentStatus, String documentType) {
+public record DemoEdocUploadRequest(
+		String documentId, String documentStatus, String documentType, String integrationChannel) {
 }

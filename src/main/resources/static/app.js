@@ -1,4 +1,5 @@
 const SESSION_KEY = "general-workflow.demo.session";
+const INTEGRATION_CHANNEL_KEY = "general-workflow.demo.integrationChannel";
 const DEMO_DOC_TYPES = ["ID", "Income", "PropertyAssessment"];
 const DEMO_MAX_DOCS = 3;
 const WORKFLOW_STEP_ORDER = ["submit", "edoc", "credit", "uw", "esign", "fund"];
@@ -24,10 +25,15 @@ const API = {
   startApp: (body) => fetchJson("/api/demo/applications", { method: "POST", body: JSON.stringify(body) }),
   status: (id) => fetchJson(`/api/demo/applications/${encodeURIComponent(id)}/status`),
   edoc: (id, body) => fetchJson(`/api/demo/applications/${encodeURIComponent(id)}/edoc-upload`, { method: "POST", body: JSON.stringify(body) }),
-  esign: (id) => fetchJson(`/api/demo/applications/${encodeURIComponent(id)}/esign-complete`, { method: "POST" }),
+  esign: (id, body) =>
+    fetchJson(`/api/demo/applications/${encodeURIComponent(id)}/esign-complete`, {
+      method: "POST",
+      body: JSON.stringify(body ?? {}),
+    }),
   uwTasks: () => fetchJson("/api/demo/underwriting/tasks"),
   completeUw: (key, body) => fetchJson(`/api/demo/underwriting/tasks/${key}/complete`, { method: "POST", body: JSON.stringify(body) }),
   events: () => fetchJson("/api/demo/integration-events?limit=40"),
+  config: () => fetchJson("/api/demo/config"),
 };
 
 let state = {
@@ -39,6 +45,7 @@ let state = {
   /** @type {Record<string, { decision: string, reason: string }>} */
   uwDrafts: {},
   uwTasksLoadSeq: 0,
+  kafkaIntegrationEnabled: false,
 };
 
 const els = {
@@ -62,8 +69,10 @@ init();
 async function init() {
   els.refreshAppsBtn.addEventListener("click", loadApplications);
   els.refreshEventsBtn.addEventListener("click", loadEvents);
+  bindIntegrationPathPanel();
   renderAllActions();
   try {
+    await loadPortalConfig();
     await loadPersonasForOptionalSwitch();
     await ensureConductorSession();
     showWorkspace();
@@ -74,6 +83,82 @@ async function init() {
     els.actionPanel.innerHTML =
       "<p class=\"muted\">Ensure general-workflow is running with <code>general-workflow.demo.enabled=true</code> and restart Spring Boot.</p>";
   }
+}
+
+function bindIntegrationPathPanel() {
+  document.querySelectorAll('input[name="integrationChannel"]').forEach((input) => {
+    input.addEventListener("change", () => {
+      if (input.checked) {
+        localStorage.setItem(INTEGRATION_CHANNEL_KEY, input.value);
+        updateIntegrationPathUi();
+      }
+    });
+  });
+}
+
+async function loadPortalConfig() {
+  const cfg = await API.config();
+  state.kafkaIntegrationEnabled = cfg.kafkaIntegrationEnabled === true;
+  applyIntegrationPathDefaults();
+}
+
+function applyIntegrationPathDefaults() {
+  const kafkaRadio = document.getElementById("integrationKafkaOption");
+  const kafkaLabel = document.getElementById("integrationKafkaLabel");
+  if (kafkaRadio) {
+    kafkaRadio.disabled = !state.kafkaIntegrationEnabled;
+  }
+  if (kafkaLabel) {
+    kafkaLabel.classList.toggle("disabled", !state.kafkaIntegrationEnabled);
+    kafkaLabel.title = state.kafkaIntegrationEnabled
+      ? ""
+      : "Kafka integration is off on the server (KAFKA_INTEGRATION_ENABLED=false)";
+  }
+  const stored = localStorage.getItem(INTEGRATION_CHANNEL_KEY);
+  let channel = "CAMUNDA_CLIENT";
+  if (stored === "KAFKA" && state.kafkaIntegrationEnabled) {
+    channel = "KAFKA";
+  }
+  const radio = document.querySelector(`input[name="integrationChannel"][value="${channel}"]`);
+  if (radio) {
+    radio.checked = true;
+  }
+  updateIntegrationPathUi();
+}
+
+function selectedIntegrationChannel() {
+  const checked = document.querySelector('input[name="integrationChannel"]:checked');
+  return checked?.value || "CAMUNDA_CLIENT";
+}
+
+function updateIntegrationPathUi() {
+  const hint = document.getElementById("integrationPathHint");
+  if (!hint) return;
+  const ch = selectedIntegrationChannel();
+  hint.textContent =
+    ch === "KAFKA"
+      ? "eDoc / eSign → Kafka topics → consumer → Camunda"
+      : "eDoc / eSign → Camunda Client (direct correlate)";
+  const esignBtn = document.getElementById("esignBtn");
+  if (esignBtn) {
+    esignBtn.textContent = ch === "KAFKA" ? "Publish eSignCompleted (Kafka)" : "Correlate eSignCompleted";
+  }
+}
+
+function withIntegrationChannel(body) {
+  return { ...body, integrationChannel: selectedIntegrationChannel() };
+}
+
+function flashIntegrationAction(label, response) {
+  if (!response) {
+    flash(label, "ok");
+    return;
+  }
+  const outcome = response.outcome || response.delivery || "OK";
+  const detail = response.detail ? ` — ${response.detail}` : "";
+  const kind =
+    outcome === "BUFFERED" || response.delivery === "CAMUNDA_BUFFERED" ? "warn" : "ok";
+  flash(`${label}: ${outcome}${detail}`, kind);
 }
 
 async function ensureConductorSession() {
@@ -198,6 +283,7 @@ function renderAllActions() {
   document.getElementById("edocUploadAllBtn")?.addEventListener("click", () => sendEdocUploadAll());
   document.getElementById("esignBtn")?.addEventListener("click", sendEsign);
   document.getElementById("happyPathBtn")?.addEventListener("click", runHappyPath);
+  updateIntegrationPathUi();
 }
 
 function defaultChecklistForProduct(applicationType) {
@@ -281,7 +367,7 @@ async function runHappyPath() {
     flash("Manual underwriting required — complete step 4, then eSign.", "ok");
     return;
   }
-  await API.esign(appId);
+  await API.esign(appId, withIntegrationChannel({}));
   flash("eSign sent — funding should complete shortly.", "ok");
   await refreshAll();
 }
@@ -443,11 +529,14 @@ async function correlateAllPendingEdocs(appId, documentStatus = "UPLOADED") {
       continue;
     }
     for (const documentType of [...pending]) {
-      await API.edoc(appId, {
-        documentType,
-        documentId: null,
-        documentStatus,
-      });
+      await API.edoc(
+        appId,
+        withIntegrationChannel({
+          documentType,
+          documentId: null,
+          documentStatus,
+        })
+      );
       await sleep(1800);
       const after = await API.status(appId);
       if (after.variables?.edocsVerified === true) return;
@@ -457,12 +546,15 @@ async function correlateAllPendingEdocs(appId, documentStatus = "UPLOADED") {
 
 async function sendEdocForType(documentType, documentStatus) {
   requireSelection();
-  await API.edoc(state.selectedId, {
-    documentId: null,
-    documentStatus: documentStatus || "UPLOADED",
-    documentType,
-  });
-  flash(`eDoc uploaded: ${documentType}`, "ok");
+  const edocResponse = await API.edoc(
+    state.selectedId,
+    withIntegrationChannel({
+      documentId: null,
+      documentStatus: documentStatus || "UPLOADED",
+      documentType,
+    })
+  );
+  flashIntegrationAction(`eDoc ${documentType} (${selectedIntegrationChannel()})`, edocResponse);
   await refreshAll();
 }
 
@@ -486,8 +578,8 @@ async function sendEdocUploadAll() {
 
 async function sendEsign() {
   requireSelection();
-  await API.esign(state.selectedId);
-  flash("eSign correlated", "ok");
+  const esignResponse = await API.esign(state.selectedId, withIntegrationChannel({}));
+  flashIntegrationAction(`eSign (${selectedIntegrationChannel()})`, esignResponse);
   await refreshAll();
 }
 

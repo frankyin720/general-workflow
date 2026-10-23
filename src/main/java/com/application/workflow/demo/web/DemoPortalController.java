@@ -12,7 +12,11 @@ import com.application.workflow.demo.model.DemoFlowProfile;
 import com.application.workflow.demo.service.DemoPortalService;
 import com.application.workflow.demo.web.dto.DemoApplicationStatusView;
 import com.application.workflow.demo.web.dto.DemoEdocUploadRequest;
+import com.application.workflow.demo.web.dto.DemoEsignCompleteRequest;
+import com.application.workflow.demo.web.dto.DemoIntegrationActionResponse;
+import com.application.workflow.demo.web.dto.DemoPortalConfigView;
 import com.application.workflow.demo.web.dto.DemoStartApplicationRequest;
+import com.application.workflow.integration.config.IntegrationConfig;
 import com.application.workflow.demo.web.dto.DemoUnderwritingDecisionRequest;
 import com.application.workflow.web.dto.UserTaskView;
 import java.util.ArrayList;
@@ -41,18 +45,26 @@ public class DemoPortalController {
 	private final DemoProperties demoProperties;
 	private final DemoPortalService demoPortalService;
 	private final DemoIntegrationLog integrationLog;
+	private final IntegrationConfig integrationConfig;
 
 	public DemoPortalController(
 			DemoSessionService sessionService,
 			DemoUserRegistry userRegistry,
 			DemoProperties demoProperties,
 			DemoPortalService demoPortalService,
-			DemoIntegrationLog integrationLog) {
+			DemoIntegrationLog integrationLog,
+			IntegrationConfig integrationConfig) {
 		this.sessionService = sessionService;
 		this.userRegistry = userRegistry;
 		this.demoProperties = demoProperties;
 		this.demoPortalService = demoPortalService;
 		this.integrationLog = integrationLog;
+		this.integrationConfig = integrationConfig;
+	}
+
+	@GetMapping("/config")
+	public DemoPortalConfigView config() {
+		return new DemoPortalConfigView(integrationConfig.kafka().enabled());
 	}
 
 	@PostMapping("/applications")
@@ -80,23 +92,25 @@ public class DemoPortalController {
 	}
 
 	@PostMapping("/applications/{applicationId}/edoc-upload")
-	@ResponseStatus(HttpStatus.NO_CONTENT)
-	public void edocUpload(
+	public DemoIntegrationActionResponse edocUpload(
 			@RequestHeader(name = DemoAuthController.SESSION_HEADER, required = false) String token,
 			@PathVariable String applicationId,
 			@RequestBody(required = false) DemoEdocUploadRequest request) {
-		demoPortalService.simulateEdocUpload(
+		return demoPortalService.simulateEdocUpload(
 				currentUser(token),
 				applicationId,
-				Objects.nonNull(request) ? request : new DemoEdocUploadRequest("", "", ""));
+				Objects.nonNull(request) ? request : new DemoEdocUploadRequest("", "", "", null));
 	}
 
 	@PostMapping("/applications/{applicationId}/esign-complete")
-	@ResponseStatus(HttpStatus.NO_CONTENT)
-	public void esignComplete(
+	public DemoIntegrationActionResponse esignComplete(
 			@RequestHeader(name = DemoAuthController.SESSION_HEADER, required = false) String token,
-			@PathVariable String applicationId) {
-		demoPortalService.simulateEsignComplete(currentUser(token), applicationId);
+			@PathVariable String applicationId,
+			@RequestBody(required = false) DemoEsignCompleteRequest request) {
+		return demoPortalService.simulateEsignComplete(
+				currentUser(token),
+				applicationId,
+				Objects.nonNull(request) ? request.integrationChannel() : null);
 	}
 
 	@GetMapping("/underwriting/tasks")
